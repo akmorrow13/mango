@@ -18,7 +18,6 @@
 package org.bdgenomics.mango.layout
 
 import org.apache.spark.Logging
-import org.apache.spark.rdd.RDD
 import org.bdgenomics.adam.models.ReferenceRegion
 import org.bdgenomics.formats.avro.Genotype
 
@@ -30,13 +29,12 @@ object VariantLayout extends Logging {
   /**
    * An implementation of Variant Layout
    *
-   * @param rdd: RDD of Genotype
+   * @param genotypes: Array of Genotype
    * @return List of VariantJsons
    */
-  def apply(rdd: RDD[Genotype]): List[VariantJson] = {
-    val variantData: RDD[((String, Iterable[Genotype]), Long)] = rdd.groupBy(_.getSampleId).zipWithIndex()
-    variantData.flatMap(recs => recs._1._2.map(r => new VariantJson(r.getContigName, r.getSampleId, r.getAlleles.mkString(" / "),
-      r.getStart, r.getEnd, recs._2))).collect.toList
+  def apply(genotypes: Array[Genotype]): Iterable[SampleGenotype] = {
+    val variantData: Map[String, Array[Genotype]] = genotypes.groupBy(_.getSampleId)
+    variantData.map(r => SampleGenotype(r._1, r._2.map(m => Mutation(m.getAlleles.mkString("/"), m.getStart, m.getEnd))))
   }
 
   /**
@@ -56,17 +54,16 @@ object VariantFreqLayout extends Logging {
   /**
    * An implementation of VariantFreqLayout
    *
-   * @param rdd: RDD of (ReferenceRegion, Genotype) tuples
-   * @return List of VariantFreqJsons
+   * @param genotypes: Iterable of (ReferenceRegion, Genotype) tuples
+   * @return List of VariantFreq
    */
-  def apply(rdd: RDD[Genotype]): List[VariantFreqJson] = {
-    val keyed: RDD[(Long, String)] = rdd.map(r => Tuple2(r.getStart, r.getAlleles.mkString(" / ")))
-    val variantFreq = keyed.countByValue()
-    var freqJson = new ListBuffer[VariantFreqJson]
-    for (rec <- variantFreq) {
-      freqJson += VariantFreqJson(rec._1._1, rec._1._2, rec._2)
-    }
-    freqJson.toList
+  def apply(genotypes: Iterable[Genotype]): List[VariantFreq] = {
+    // TODO: enumerate alleles
+    val keyed = genotypes.groupBy(_.getStart).map(r => (r._1, r._2.map(_.getAlleles.mkString("/"))))
+    keyed.map(r => {
+      val alleles = r._2.groupBy(identity).map(r => (r._1, r._2.size))
+      VariantFreq(r._1, alleles)
+    }).toList
   }
 
 }
@@ -91,21 +88,8 @@ class VariantLayout(values: Iterator[(ReferenceRegion, Genotype)]) extends Track
   def collect: Iterator[GenericTrack[Genotype]] = trackBuilder.map(t => Track[Genotype](t)).toIterator
 }
 
-object VariantJson {
-
-  /**
-   * An implementation of VariantJson
-   *
-   * @param recs: List of (ReferenceRegion, Genotype) tuples
-   * @return List of VariantJsons
-   */
-  def apply(recs: List[(ReferenceRegion, Genotype)], track: Int): List[VariantJson] = {
-    recs.map(rec => new VariantJson(rec._2.getVariant.getContigName, rec._2.getSampleId,
-      rec._2.getAlleles.map(_.toString).mkString(" / "), rec._2.getStart,
-      rec._2.getEnd, track))
-  }
-}
-
 // tracked json objects for genotype visual data
-case class VariantJson(contigName: String, sampleId: String, alleles: String, start: Long, end: Long, track: Long)
-case class VariantFreqJson(start: Long, alleles: String, count: Long)
+case class SampleGenotype(sampleId: String, mutations: Array[Mutation])
+case class Mutation(alleles: String, start: Long, end: Long)
+
+case class VariantFreq(start: Long, alleleCounts: Map[String, Int])

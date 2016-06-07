@@ -18,17 +18,18 @@
 package org.bdgenomics.mango.models
 
 import edu.berkeley.cs.amplab.spark.intervalrdd.IntervalRDD
+import net.liftweb.json.Serialization.write
 import org.apache.parquet.filter2.dsl.Dsl._
 import org.apache.parquet.filter2.predicate.FilterPredicate
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
-import org.bdgenomics.adam.models.{ ReferencePosition, ReferenceRegion, SequenceDictionary }
+import org.bdgenomics.adam.models.{ ReferenceRegion, SequenceDictionary }
 import org.bdgenomics.adam.projections.{ GenotypeField, Projection }
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.adam.rdd.variation._
 import org.bdgenomics.formats.avro.Genotype
-import org.bdgenomics.mango.tiling.VariantTile
+import org.bdgenomics.mango.layout.{ VariantFreq, VariantLayout }
+import org.bdgenomics.mango.tiling.{ KTiles, VariantTile }
 import org.bdgenomics.mango.util.Bookkeep
 
 import scala.reflect.ClassTag
@@ -37,7 +38,8 @@ import scala.reflect.ClassTag
  * Handles loading and tracking of data from persistent storage into memory for Genotype data.
  * @see LazyMaterialization.scala
  */
-class GenotypeMaterialization(s: SparkContext, d: SequenceDictionary, parts: Int, chunkS: Int) extends LazyMaterialization[Genotype, VariantTile] {
+class GenotypeMaterialization(s: SparkContext, d: SequenceDictionary, parts: Int, chunkS: Int) extends LazyMaterialization[Genotype, VariantTile]
+    with KTiles[VariantTile] with Serializable with Logging {
 
   val sc = s
   val dict = d
@@ -52,6 +54,46 @@ class GenotypeMaterialization(s: SparkContext, d: SequenceDictionary, parts: Int
     sc.loadParquetGenotypes(fp, predicate = Some(pred), projection = Some(proj))
     val genes = sc.loadParquetGenotypes(fp, predicate = Some(pred))
     genes
+  }
+
+  /**
+   * Stringifies raw genotypes to a string
+   * @param rdd
+   * @param region
+   * @return
+   */
+  def stringifyL0(rdd: RDD[(String, Iterable[Any])], region: ReferenceRegion): String = {
+    implicit val formats = net.liftweb.json.DefaultFormats
+
+    val data: Array[(String, Iterable[Genotype])] = rdd
+      .mapValues(_.asInstanceOf[Iterable[Genotype]])
+      .mapValues(r => r.filter(r => r.getStart <= region.end && r.getEnd >= region.start)).collect
+
+    val flattened: Map[String, Array[Genotype]] = data.groupBy(_._1)
+      .map(r => (r._1, r._2.flatMap(_._2)))
+
+    // write map of (key, data)
+    write(flattened.mapValues(r => VariantLayout(r)))
+  }
+
+  /**
+   * Stringifies raw genotypes to a string
+   * @param rdd
+   * @param region
+   * @return
+   */
+  def stringifyL1(rdd: RDD[(String, Iterable[Any])], region: ReferenceRegion): String = {
+    implicit val formats = net.liftweb.json.DefaultFormats
+
+    val data: Array[(String, Iterable[VariantFreq])] = rdd
+      .mapValues(_.asInstanceOf[Iterable[VariantFreq]])
+      .mapValues(r => r.filter(r => r.start >= region.start && r.start <= region.end)).collect
+
+    val flattened: Map[String, Array[VariantFreq]] = data.groupBy(_._1)
+      .map(r => (r._1, r._2.flatMap(_._2)))
+
+    // write map of (key, data)
+    write(flattened)
   }
 
   override def getFileReference(fp: String): String = {
@@ -95,7 +137,8 @@ class GenotypeMaterialization(s: SparkContext, d: SequenceDictionary, parts: Int
           val data = loadFromFile(reg, k)
           //TODO: add partitioner?
           println(reg)
-          val tiles = Array((region, new VariantTile(data.collect)))
+          // TODO: remove hard coded key
+          val tiles = Array((region, VariantTile(data.collect.toIterable, 0)))
           if (intRDD == null) {
             intRDD = IntervalRDD(sc.parallelize(tiles))
             intRDD.persist(StorageLevel.MEMORY_AND_DISK)

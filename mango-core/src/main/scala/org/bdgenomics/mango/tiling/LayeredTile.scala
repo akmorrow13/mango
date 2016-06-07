@@ -22,7 +22,7 @@ import org.bdgenomics.adam.models.ReferenceRegion
 
 import scala.reflect.ClassTag
 
-abstract class LayeredTile[S: ClassTag] extends Serializable with Logging {
+abstract class NLayeredTile[S: ClassTag] extends Serializable with Logging {
   def rawData: Array[S]
   def layerMap: Map[Int, Array[S]]
 
