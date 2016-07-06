@@ -28,6 +28,7 @@ import org.apache.spark.storage.StorageLevel
 import org.bdgenomics.adam.models.{ ReferenceRegion, SequenceDictionary }
 import org.bdgenomics.adam.projections.{ AlignmentRecordField, Projection }
 import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.rdd.read.AlignmentRecordRDD
 import org.bdgenomics.formats.avro.AlignmentRecord
 import org.bdgenomics.mango.converters.GA4GHConverter
 import org.bdgenomics.mango.core.util.VizUtils
@@ -37,6 +38,7 @@ import org.bdgenomics.mango.util.Bookkeep
 import org.bdgenomics.utils.intervalrdd.IntervalRDD
 import org.bdgenomics.utils.misc.Logging
 import org.ga4gh.{ GAReadAlignment, GASearchReadsResponse }
+import org.bdgenomics.adam.hbase.HbaseFunctions
 
 import scala.reflect.ClassTag
 
@@ -59,6 +61,10 @@ class AlignmentRecordMaterialization(s: SparkContext,
   @transient implicit val formats = net.liftweb.json.DefaultFormats
 
   val chunkSize = chunkS
+
+  // hbase
+  val hbaseTableName = "alignments"
+  val hbaseColFam = "cf"
   val prefetchSize = if (sc.isLocal) 3000 else 10000
   val bookkeep = new Bookkeep(prefetchSize)
   val files = filePaths
@@ -105,18 +111,19 @@ class AlignmentRecordMaterialization(s: SparkContext,
         val regionsOpt = bookkeep.getMaterializedRegions(region, files)
         if (regionsOpt.isDefined) {
           for (r <- regionsOpt.get) {
-            put(r)
+          //  put(r) Dont call put for hbase files
           }
         }
-        val dataLayer: Layer = layerOpt.getOrElse(L0)
-        val layers = List(dataLayer, coverageLayer)
-        val data = getTiles(region, layers)
-        val json = layers.map(layer => (layer, stringify(data.filter(_._1 == layer.id).flatMap(_._2), region, layer))).toMap
-
-        val coverage = json.get(coverageLayer).get // TODO: coverage
-        val reads = json.get(dataLayer).get
-        reads
-        //        write(Map("coverage" -> coverage, "reads" -> reads))
+        val start = region.referenceName.toString + "_" + String.format("%10s", region.start.toString).replace(' ', '0')
+        val stop = region.referenceName.toString + "_" + String.format("%10s", region.end.toString).replace(' ', '0')
+        val hbaseCol = LazyMaterialization.filterKeyFromFile(files.head)
+        val rdd: RDD[AlignmentRecord] = HbaseFunctions.loadHbaseAlignments(sc, hbaseTableName, hbaseColFam, hbaseCol, start, stop)
+        val gaReads = rdd.map(r =>  GA4GHConverter.toGAReadAlignment(r)).collect
+        val json: String = GASearchReadsResponse.newBuilder()
+            .setAlignments(gaReads.toList)
+            .build().toString
+        val key = LazyMaterialization.filterKeyFromFile(files.head)
+        Map(key -> json)
       } case None => {
         throw new Exception("Not found in dictionary")
       }
@@ -152,7 +159,6 @@ class AlignmentRecordMaterialization(s: SparkContext,
         .setAlignments(v)
         .build().toString
     })
-
   }
 
   /**
@@ -166,7 +172,6 @@ class AlignmentRecordMaterialization(s: SparkContext,
     val seqRecord = dict(region.referenceName)
     if (seqRecord.isDefined) {
       val trimmedRegion = ReferenceRegion(region.referenceName, region.start, VizUtils.getEnd(region.end, seqRecord))
-      var data: RDD[(String, AlignmentRecord)] = sc.emptyRDD[(String, AlignmentRecord)]
 
       // divide regions by chunksize
       val regions: List[ReferenceRegion] = Bookkeep.unmergeRegions(region, chunkSize)
@@ -175,37 +180,11 @@ class AlignmentRecordMaterialization(s: SparkContext,
       files.map(fp => {
         // per sample data
         val k = LazyMaterialization.filterKeyFromFile(fp)
-        val kdata = AlignmentRecordMaterialization.load(sc, trimmedRegion, fp).map(r => (k, r))
-        data = data.union(kdata)
+        val alignments = AlignmentRecordMaterialization.load(sc, trimmedRegion, fp)
+        // TODO: take into account file name
+        HbaseFunctions.saveHbaseAlignments(sc, alignments, hbaseTableName, hbaseColFam, k, "hdfs://x2.justin.org:8020/user/justin/jptemp5")
       })
 
-      var mappedRecords: RDD[(ReferenceRegion, (String, AlignmentRecord))] = sc.emptyRDD[(ReferenceRegion, (String, AlignmentRecord))]
-
-      // for all regions, filter by that region and create AlignmentRecordTile
-      regions.foreach(r => {
-        val grouped = data.filter(ar => r.overlaps(ReferenceRegion(ar._2))).map(ar => (r, ar))
-        mappedRecords = mappedRecords.union(grouped)
-      })
-
-      val groupedRecords: RDD[(ReferenceRegion, Iterable[(String, AlignmentRecord)])] =
-        mappedRecords
-          .groupBy(_._1)
-          .map(r => (r._1, r._2.map(_._2)))
-      val tiles: RDD[(ReferenceRegion, AlignmentRecordTile)] =
-        groupedRecords.map(r => (r._1, AlignmentRecordTile(r._2, r._1)))
-
-      // insert into IntervalRDD
-      if (intRDD == null) {
-        intRDD = IntervalRDD(tiles)
-        intRDD.persist(StorageLevel.MEMORY_AND_DISK)
-      } else {
-        val t = intRDD
-        intRDD = intRDD.multiput(tiles)
-        // TODO: can we do this incrementally instead?
-        t.unpersist(true)
-        intRDD.persist(StorageLevel.MEMORY_AND_DISK)
-      }
-      bookkeep.rememberValues(region, files)
     }
   }
 }
@@ -227,7 +206,7 @@ object AlignmentRecordMaterialization {
    * @param fp filepath to load from
    * @return RDD of data from the file over specified ReferenceRegion
    */
-  def load(sc: SparkContext, region: ReferenceRegion, fp: String): RDD[AlignmentRecord] = {
+  def load(sc: SparkContext, region: ReferenceRegion, fp: String): AlignmentRecordRDD = {
     if (fp.endsWith(".adam")) loadAdam(sc, region, fp)
     else if (fp.endsWith(".sam") || fp.endsWith(".bam")) {
       AlignmentRecordMaterialization.loadFromBam(sc, region, fp)
@@ -243,10 +222,11 @@ object AlignmentRecordMaterialization {
    * @param fp filepath to load from
    * @return RDD of data from the file over specified ReferenceRegion
    */
-  def loadFromBam(sc: SparkContext, region: ReferenceRegion, fp: String): RDD[AlignmentRecord] = {
+  def loadFromBam(sc: SparkContext, region: ReferenceRegion, fp: String): AlignmentRecordRDD = {
     val idxFile: File = new File(fp + ".bai")
     if (!idxFile.exists()) {
-      sc.loadBam(fp).rdd.filterByOverlappingRegion(region)
+//      sc.loadBam(fp).rdd.filterByOverlappingRegion(region)
+      throw new Exception("not supporting no indexes for bam files")
     } else {
       sc.loadIndexedBam(fp, region)
     }
@@ -259,7 +239,7 @@ object AlignmentRecordMaterialization {
    * @param fp filepath to load from
    * @return RDD of data from the file over specified ReferenceRegion
    */
-  def loadAdam(sc: SparkContext, region: ReferenceRegion, fp: String): RDD[AlignmentRecord] = {
+  def loadAdam(sc: SparkContext, region: ReferenceRegion, fp: String): AlignmentRecordRDD = {
     val name = Binary.fromString(region.referenceName)
     val pred: FilterPredicate = ((LongColumn("end") >= region.start) && (LongColumn("start") <= region.end) && (BinaryColumn("contigName") === name))
     val proj = Projection(AlignmentRecordField.contigName, AlignmentRecordField.mapq, AlignmentRecordField.readName, AlignmentRecordField.start,
