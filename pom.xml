@@ -561,6 +561,16 @@
         <artifactId>snappy-java</artifactId>
         <version>${snappy.version}</version>
       </dependency>
+      <dependency>
+        <groupId>org.apache.hbase</groupId>
+        <artifactId>hbase-client</artifactId>
+        <version>1.2.0-cdh5.7.1</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.hbase</groupId>
+        <artifactId>hbase-spark</artifactId>
+        <version>1.2.0-cdh5.7.1</version>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 </project>

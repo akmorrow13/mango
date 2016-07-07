@@ -111,18 +111,19 @@ class AlignmentRecordMaterialization(s: SparkContext,
         val regionsOpt = bookkeep.getMaterializedRegions(region, files)
         if (regionsOpt.isDefined) {
           for (r <- regionsOpt.get) {
-          //  put(r) Dont call put for hbase files
+            //  put(r) Dont call put for hbase files
           }
         }
         val start = region.referenceName.toString + "_" + String.format("%10s", region.start.toString).replace(' ', '0')
         val stop = region.referenceName.toString + "_" + String.format("%10s", region.end.toString).replace(' ', '0')
         val hbaseCol = LazyMaterialization.filterKeyFromFile(files.head)
         val rdd: RDD[AlignmentRecord] = HbaseFunctions.loadHbaseAlignments(sc, hbaseTableName, hbaseColFam, hbaseCol, start, stop)
-        val gaReads = rdd.map(r =>  GA4GHConverter.toGAReadAlignment(r)).collect
+        val gaReads = rdd.map(r => GA4GHConverter.toGAReadAlignment(r)).collect
         val json: String = GASearchReadsResponse.newBuilder()
-            .setAlignments(gaReads.toList)
-            .build().toString
+          .setAlignments(gaReads.toList)
+          .build().toString
         val key = LazyMaterialization.filterKeyFromFile(files.head)
+        println(key, json)
         Map(key -> json)
       } case None => {
         throw new Exception("Not found in dictionary")
@@ -225,7 +226,7 @@ object AlignmentRecordMaterialization {
   def loadFromBam(sc: SparkContext, region: ReferenceRegion, fp: String): AlignmentRecordRDD = {
     val idxFile: File = new File(fp + ".bai")
     if (!idxFile.exists()) {
-//      sc.loadBam(fp).rdd.filterByOverlappingRegion(region)
+      //      sc.loadBam(fp).rdd.filterByOverlappingRegion(region)
       throw new Exception("not supporting no indexes for bam files")
     } else {
       sc.loadIndexedBam(fp, region)
