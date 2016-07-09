@@ -107,8 +107,10 @@ object FeatureMaterialization {
    */
   def load(sc: SparkContext, region: Option[ReferenceRegion], fp: String): RDD[Feature] = {
     if (fp.endsWith(".adam")) FeatureMaterialization.loadAdam(sc, region, fp)
-    else if (fp.endsWith(".bed")) {
+    else if (fp.endsWith(".bed") || fp.endsWith("gtf")) {
       FeatureMaterialization.loadFromBed(sc, region, fp)
+    } else if (fp.endsWith(".gff3")) {
+      sc.loadGff3(fp)
     } else {
       throw UnsupportedFileException("File type not supported")
     }

@@ -2,6 +2,7 @@
 <%@ val readsExist:     Boolean %>
 <%@ val variantsExist:  Boolean %>
 <%@ val featuresExist:  Boolean %>
+<%@ val genesExist:  Boolean %>
 <%@ val readsPaths:   Option[List[String]] %>
 <%@ val variantsPaths:  Option[List[String]] %>
 <%@ val featuresPaths:  Option[List[String]] %>
@@ -62,6 +63,16 @@ xhr.onreadystatechange = function() {
                     viz: pileup.viz.location(),
                     name: 'Location'
                 },
+                #if (genesExist)
+                {
+                viz: pileup.viz.genes(),
+                data: pileup.formats.genes({
+                url: '/genes',
+                key: 'genes'
+                }),
+                name: 'Genes'
+                },
+                #end
                 #if (variantsExist)
                     #for (s <- variantsPaths.get)
                         {

@@ -62,7 +62,8 @@ object VizUtils {
   def trimSequence(str: String, region: ReferenceRegion, size: Int): String = {
     val length = region.length.toInt
     val start = (region.start % size).toInt
-    str.substring(start, start + length)
+    val end = Math.min(str.length, start + length)
+    str.substring(start, end)
   }
 
 }

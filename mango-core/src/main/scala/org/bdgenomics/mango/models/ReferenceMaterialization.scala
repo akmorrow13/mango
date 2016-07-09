@@ -20,29 +20,65 @@ package org.bdgenomics.mango.models
 import java.io.File
 
 import htsjdk.samtools.SAMSequenceDictionary
+import net.liftweb.json.Serialization._
 import org.apache.parquet.filter2.dsl.Dsl.{ BinaryColumn, _ }
 import org.apache.parquet.filter2.predicate.FilterPredicate
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
-import org.bdgenomics.adam.models.{ ReferenceRegion, SequenceDictionary }
+import org.bdgenomics.adam.models.{ Gene, ReferenceRegion, SequenceDictionary }
 import org.bdgenomics.adam.rdd.ADAMContext._
-import org.bdgenomics.formats.avro.NucleotideContigFragment
-import org.bdgenomics.mango.core.util.{ VizUtils, ResourceUtils }
+import org.bdgenomics.formats.avro.{ Feature, NucleotideContigFragment }
+import org.bdgenomics.mango.core.util.{ ResourceUtils, VizUtils }
+import org.bdgenomics.mango.layout.GeneJson
 import org.bdgenomics.utils.intervalrdd.IntervalRDD
 import org.bdgenomics.utils.misc.Logging
 import picard.sam.CreateSequenceDictionary
 
 class ReferenceMaterialization(@transient sc: SparkContext,
                                referencePath: String,
-                               chunkS: Int = 10000) extends Serializable with Logging {
+                               chunkS: Int = 10000, genePath: Option[String] = None) extends Serializable with Logging {
 
-  //Regex for splitting fragments to the chunk size specified above
-
+  @transient implicit val formats = net.liftweb.json.DefaultFormats
   var bookkeep = Array[String]()
   val chunkSize = chunkS
   var intRDD: IntervalRDD[ReferenceRegion, String] = null
   val dict = init
+  var hasGenes: Boolean = false
+  val geneRDD: IntervalRDD[ReferenceRegion, Gene] = loadGenes(genePath)
+
+  /**
+   *
+   * @param filePath: bed or ADAM feature filepath
+   * @return RDD of features to be formatted as genes
+   */
+  def loadGenes(filePath: Option[String]): IntervalRDD[ReferenceRegion, Gene] = {
+    filePath match {
+      case Some(_) => {
+        if (filePath.get.endsWith(".gtf") && filePath.get.endsWith(".adam")) {
+          throw new UnsupportedFileException(s"${filePath.get} not supported for genes")
+        }
+        val features: RDD[Feature] = FeatureMaterialization.load(sc, None, filePath.get)
+        val fixedParentIds: RDD[Feature] = features.reassignParentIds
+
+        val genes: RDD[(ReferenceRegion, Gene)] = fixedParentIds.toGenes.map(g => {
+          (ReferenceRegion(g.regions.head.referenceName, g.regions.map(_.start).min, g.regions.map(_.end).max), g)
+        })
+        if (!genes.isEmpty())
+          hasGenes = true
+        IntervalRDD(genes)
+      }
+      case None => IntervalRDD(sc.emptyRDD[(ReferenceRegion, Gene)])
+    }
+  }
+
+  def getGenes(region: ReferenceRegion): String = {
+    val genes = geneRDD.filterByInterval(region).toRDD
+    println(genes.count)
+    val json = genes.flatMap(g => GeneJson(g)).collect
+
+    write(json)
+  }
 
   def getSequenceDictionary: SequenceDictionary = dict
 

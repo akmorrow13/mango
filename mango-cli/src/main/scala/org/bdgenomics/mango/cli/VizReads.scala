@@ -164,6 +164,9 @@ class VizReadsArgs extends Args4jBase with ParquetArgs {
   @Args4jOption(required = false, name = "-repartition", usage = "The number of partitions")
   var partitionCount: Int = 0
 
+  @Args4jOption(required = false, name = "-genes", usage = "File with genes. Accepted formats are ADAM and .gff3")
+  var genePath: String = null
+
   @Args4jOption(required = false, name = "-read_files", usage = "A list of reads files to view, separated by commas (,)")
   var readsPaths: String = null
 
@@ -261,18 +264,28 @@ class VizServlet extends ScalatraServlet {
         "variantsExist" -> VizReads.variantsExist,
         "featuresPaths" -> featuresPaths,
         "featuresExist" -> VizReads.featuresExist,
+        "genesExist" -> VizReads.refRDD.hasGenes,
         "contig" -> session("referenceRegion").asInstanceOf[ReferenceRegion].referenceName,
         "start" -> session("referenceRegion").asInstanceOf[ReferenceRegion].start.toString,
         "end" -> session("referenceRegion").asInstanceOf[ReferenceRegion].end.toString))
   }
 
-  // Sends byte array to front end
   get("/reference/:ref") {
     val viewRegion = ReferenceRegion(params("ref"), params("start").toLong, params("end").toLong)
     session("referenceRegion") = viewRegion
     val dictOpt = VizReads.globalDict(viewRegion.referenceName)
     if (dictOpt.isDefined) {
       Ok(write(VizReads.refRDD.getReferenceString(viewRegion)))
+    } else VizReads.errors.outOfBounds
+  }
+
+  get("/genes/:ref") {
+    val viewRegion = ReferenceRegion(params("ref"), params("start").toLong, params("end").toLong)
+    session("referenceRegion") = viewRegion
+    val dictOpt = VizReads.globalDict(viewRegion.referenceName)
+    if (dictOpt.isDefined) {
+      val genes = VizReads.refRDD.getGenes(viewRegion)
+      Ok(write(genes))
     } else VizReads.errors.outOfBounds
   }
 
@@ -438,7 +451,7 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
         throw new FileNotFoundException("reference file not provided")
       })
 
-      VizReads.refRDD = new ReferenceMaterialization(sc, referencePath, VizReads.chunkSize)
+      VizReads.refRDD = new ReferenceMaterialization(sc, referencePath, VizReads.chunkSize, Option(args.genePath))
       VizReads.globalDict = VizReads.refRDD.getSequenceDictionary
     }
 
@@ -497,7 +510,7 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
           .foreach(file => log.warn(s"${file} is not a valid feature file. Removing... "))
 
         if (!featurePaths.isEmpty) {
-          VizReads.featureData = Some(new FeatureMaterialization(sc, featurePaths, VizReads.globalDict, (VizReads.chunkSize).toInt))
+          VizReads.featureData = Some(new FeatureMaterialization(sc, featurePaths, VizReads.globalDict, VizReads.chunkSize))
         }
       }
     }
