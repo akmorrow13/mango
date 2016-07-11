@@ -29,23 +29,26 @@ import org.apache.spark.storage.StorageLevel
 import org.bdgenomics.adam.models.{ Gene, ReferenceRegion, SequenceDictionary }
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.formats.avro.{ Feature, NucleotideContigFragment }
-import org.bdgenomics.mango.core.util.{ ResourceUtils, VizUtils }
+import org.bdgenomics.mango.core.util.{ Utils, ResourceUtils, VizUtils }
 import org.bdgenomics.mango.layout.GeneJson
 import org.bdgenomics.utils.intervalrdd.IntervalRDD
 import org.bdgenomics.utils.misc.Logging
 import picard.sam.CreateSequenceDictionary
 
 class ReferenceMaterialization(@transient sc: SparkContext,
-                               referencePath: String,
-                               chunkS: Int = 10000, genePath: Option[String] = None) extends Serializable with Logging {
+                               referencePath: String, genePath: Option[String] = None) extends Serializable with Logging {
 
   @transient implicit val formats = net.liftweb.json.DefaultFormats
   var bookkeep = Array[String]()
-  val chunkSize = chunkS
-  var intRDD: IntervalRDD[ReferenceRegion, String] = null
+
+  // set and name interval rdd
+  var intRDD: IntervalRDD[ReferenceRegion, String] = IntervalRDD(sc.emptyRDD[(ReferenceRegion, String)])
+  intRDD.setName(Utils.parseIdFromClassName(this.getClass.toString))
+
   val dict = init
   var hasGenes: Boolean = false
   val geneRDD: IntervalRDD[ReferenceRegion, Gene] = loadGenes(genePath)
+  geneRDD.setName("Gene RDD")
 
   /**
    *
@@ -113,23 +116,16 @@ class ReferenceMaterialization(@transient sc: SparkContext,
       else
         throw new UnsupportedFileException("File Types supported for reference are fa, fasta and adam")
 
-    val splitRegex = "(?<=\\G.{" + chunkSize + "})"
-    val c = chunkSize
-
     // map sequences and divy fragment lengths by chunk size
-    val fragments: RDD[(ReferenceRegion, Array[(String, Int)])] = sequences.map(r => (ReferenceRegion(r.getContig.getContigName, r.getFragmentStartPosition, r.getFragmentStartPosition + r.getFragmentLength),
-      r.getFragmentSequence.toUpperCase.split(splitRegex).zipWithIndex))
-
-    // map fragmented sequences to smaller ReferenceRegions the size of chunksize
-    val splitFragments: RDD[(ReferenceRegion, String)] = fragments.flatMap(r => r._2.map(x =>
-      (ReferenceRegion(r._1.referenceName, r._1.start + x._2 * c, r._1.start + x._2 * c + x._1.length), x._1)))
+    val fragments: RDD[(ReferenceRegion, String)] = sequences.map(r => (ReferenceRegion(r.getContig.getContigName, r.getFragmentStartPosition, r.getFragmentStartPosition + r.getFragmentLength),
+      r.getFragmentSequence.toUpperCase()))
 
     // convert to interval RDD
     val refRDD: IntervalRDD[ReferenceRegion, String] =
-      IntervalRDD(splitFragments)
+      IntervalRDD(fragments)
 
     // insert whole chromosome in structure
-    if (intRDD == null) {
+    if (intRDD.isEmpty()) {
       intRDD = refRDD
     } else {
       intRDD = intRDD.multiput(refRDD)
@@ -166,10 +162,10 @@ class ReferenceMaterialization(@transient sc: SparkContext,
   }
 
   def stringifyRaw(data: RDD[(ReferenceRegion, String)], region: ReferenceRegion): String = {
-    val str = data.collect
-      .sortBy(_._1.start).map(_._2)
-      .reduce(_ + _)
-    VizUtils.trimSequence(str, region, chunkSize)
+    val str: Tuple2[ReferenceRegion, String] = data.collect
+      .sortBy(_._1.start)
+      .reduce((a, b) => (a._1.hull(b._1), a._2 + b._2))
+    VizUtils.trimSequence(str._2, str._1, region)
   }
 
   def setSequenceDictionary(filePath: String): SequenceDictionary = {

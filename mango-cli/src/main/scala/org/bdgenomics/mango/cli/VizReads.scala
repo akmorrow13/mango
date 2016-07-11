@@ -105,7 +105,7 @@ object VizReads extends BDGCommandCompanion with Logging {
 
   // HTTP ERROR RESPONSES
   object errors {
-    var outOfBounds = NotFound("Region Out of Bounds")
+    var outOfBounds = NotFound("Region not found in Reference Sequence Dictionary")
     var largeRegion = RequestEntityTooLarge("Region too large")
     var unprocessableFile = UnprocessableEntity("File type not supported")
     var notFound = NotFound("File not found")
@@ -285,7 +285,7 @@ class VizServlet extends ScalatraServlet {
     val dictOpt = VizReads.globalDict(viewRegion.referenceName)
     if (dictOpt.isDefined) {
       val genes = VizReads.refRDD.getGenes(viewRegion)
-      Ok(write(genes))
+      Ok(genes)
     } else VizReads.errors.outOfBounds
   }
 
@@ -451,7 +451,7 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
         throw new FileNotFoundException("reference file not provided")
       })
 
-      VizReads.refRDD = new ReferenceMaterialization(sc, referencePath, VizReads.chunkSize, Option(args.genePath))
+      VizReads.refRDD = new ReferenceMaterialization(sc, referencePath, Option(args.genePath))
       VizReads.globalDict = VizReads.refRDD.getSequenceDictionary
     }
 
@@ -536,8 +536,6 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
             GenotypeFilter.filter(variants, GenotypeFilterType(variantFilter.get), VizReads.chunkSize, threshold)
           }
         } else sc.emptyRDD[(ReferenceRegion, Long)]
-      println("variant regions found")
-      println(variantRegions)
 
       // filtering for features
       val featureRegions: RDD[(ReferenceRegion, Long)] =

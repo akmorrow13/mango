@@ -39,7 +39,7 @@ class ReferenceMaterializationSuite extends MangoFunSuite {
 
   sparkTest("assert chunk size specification correctly resizes fragments") {
     val chunkSize = 100
-    val refRDD = new ReferenceMaterialization(sc, referencePath, chunkSize)
+    val refRDD = new ReferenceMaterialization(sc, referencePath)
     val response: String = refRDD.getReferenceString(region)
     val first = refRDD.intRDD.toRDD.first._2
     assert(first.length == chunkSize)
@@ -49,8 +49,8 @@ class ReferenceMaterializationSuite extends MangoFunSuite {
     val chunkSize1 = 100
     val chunkSize2 = 500
 
-    val refRDD1 = new ReferenceMaterialization(sc, referencePath, chunkSize1)
-    val refRDD2 = new ReferenceMaterialization(sc, referencePath, chunkSize2)
+    val refRDD1 = new ReferenceMaterialization(sc, referencePath)
+    val refRDD2 = new ReferenceMaterialization(sc, referencePath)
     val response1: String = refRDD1.getReferenceString(region)
     val response2: String = refRDD2.getReferenceString(region)
     assert(response1 == response2)
