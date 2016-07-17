@@ -21,17 +21,16 @@ import java.io.File
 
 import htsjdk.samtools.SAMSequenceDictionary
 import net.liftweb.json.Serialization._
-import org.apache.parquet.filter2.dsl.Dsl.{ BinaryColumn, _ }
-import org.apache.parquet.filter2.predicate.FilterPredicate
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
-import org.apache.spark.storage.StorageLevel
-import org.bdgenomics.adam.models.{ Gene, ReferenceRegion, SequenceDictionary }
+import org.bdgenomics.adam.models._
 import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.adam.util.{ ReferenceContigMap, ReferenceFile, TwoBitFile }
 import org.bdgenomics.formats.avro.{ Feature, NucleotideContigFragment }
-import org.bdgenomics.mango.core.util.{ Utils, ResourceUtils, VizUtils }
+import org.bdgenomics.mango.core.util.ResourceUtils
 import org.bdgenomics.mango.layout.GeneJson
 import org.bdgenomics.utils.intervalrdd.IntervalRDD
+import org.bdgenomics.utils.io.LocalFileByteAccess
 import org.bdgenomics.utils.misc.Logging
 import picard.sam.CreateSequenceDictionary
 
@@ -42,10 +41,20 @@ class ReferenceMaterialization(@transient sc: SparkContext,
   var bookkeep = Array[String]()
 
   // set and name interval rdd
-  var intRDD: IntervalRDD[ReferenceRegion, String] = IntervalRDD(sc.emptyRDD[(ReferenceRegion, String)])
-  intRDD.setName(Utils.parseIdFromClassName(this.getClass.toString))
+  val (referenceFile: ReferenceFile, dict: SequenceDictionary) =
+    if (referencePath.endsWith(".fa") || referencePath.endsWith(".fasta")) {
+      val createObj = new CreateSequenceDictionary
+      val dict: SAMSequenceDictionary = createObj.makeSequenceDictionary(new File(referencePath))
+      (sc.loadSequences(referencePath, fragmentLength = 10000), SequenceDictionary(dict))
+    } else if (referencePath.endsWith(".2bit")) {
+      val twoBit = new TwoBitFile(new LocalFileByteAccess(new File(referencePath)))
+      (twoBit, twoBit.getSequenceDictionary())
+    } else if (referencePath.endsWith(".adam")) {
+      val reference = sc.loadParquetContigFragments(referencePath)
+      (reference, reference.getSequenceDictionary())
+    } else
+      throw new UnsupportedFileException("File Types supported for reference are fa, fasta and adam")
 
-  val dict = init
   var hasGenes: Boolean = false
   val geneRDD: IntervalRDD[ReferenceRegion, Gene] = loadGenes(genePath)
   geneRDD.setName("Gene RDD")
@@ -77,7 +86,6 @@ class ReferenceMaterialization(@transient sc: SparkContext,
 
   def getGenes(region: ReferenceRegion): String = {
     val genes = geneRDD.filterByInterval(region).toRDD
-    println(genes.count)
     val json = genes.flatMap(g => GeneJson(g)).collect
 
     write(json)
@@ -85,104 +93,7 @@ class ReferenceMaterialization(@transient sc: SparkContext,
 
   def getSequenceDictionary: SequenceDictionary = dict
 
-  /*
-   * Puts data into reference RDD
-   *
-   * @param region: ReferenceRegion. Loads chromosome from the specified region into reference RDD
-   */
-  def put(region: ReferenceRegion): Unit = {
-    put(Some(region))
-    bookkeep ++= Array(region.referenceName)
-  }
-
-  /*
-   * Puts data into reference RDD
-   *
-   * @param region: Option[ReferenceRegion] if region is none,
-   * loads whole reference file into rdd. Otherwise loads whole chromosome from region.
-   */
-  def put(region: Option[ReferenceRegion]): Unit = {
-    // TODO: check if query in dict
-    val pred: Option[FilterPredicate] =
-      region match {
-        case Some(_) => Some((BinaryColumn("contig.contigName") === (region.get.referenceName)))
-        case None    => None
-      }
-    val sequences: RDD[NucleotideContigFragment] =
-      if (referencePath.endsWith(".fa") || referencePath.endsWith(".fasta"))
-        sc.loadSequences(referencePath)
-      else if (referencePath.endsWith(".adam"))
-        sc.loadParquetContigFragments(referencePath, predicate = pred)
-      else
-        throw new UnsupportedFileException("File Types supported for reference are fa, fasta and adam")
-
-    // map sequences and divy fragment lengths by chunk size
-    val fragments: RDD[(ReferenceRegion, String)] = sequences.map(r => (ReferenceRegion(r.getContig.getContigName, r.getFragmentStartPosition, r.getFragmentStartPosition + r.getFragmentLength),
-      r.getFragmentSequence.toUpperCase()))
-
-    // convert to interval RDD
-    val refRDD: IntervalRDD[ReferenceRegion, String] =
-      IntervalRDD(fragments)
-
-    // insert whole chromosome in structure
-    if (intRDD.isEmpty()) {
-      intRDD = refRDD
-    } else {
-      intRDD = intRDD.multiput(refRDD)
-    }
-    intRDD.persist(StorageLevel.MEMORY_AND_DISK)
-
-  }
-
   def getReferenceString(region: ReferenceRegion): String = {
-    if (!bookkeep.contains(region.referenceName)) {
-      put(region)
-    }
-
-    val data: RDD[(ReferenceRegion, String)] =
-      intRDD.filterByInterval(region)
-        .toRDD
-
-    stringifyRaw(data, region)
+    referenceFile.extract(region).toUpperCase()
   }
-
-  def init: SequenceDictionary = {
-    if (!(referencePath.endsWith(".fa") || referencePath.endsWith(".fasta") || referencePath.endsWith(".adam"))) {
-      throw new UnsupportedFileException("WARNING: Invalid reference file")
-    }
-    val dictionary = setSequenceDictionary(referencePath)
-
-    // because fastas do not support predicate pushdown, must load all data into index
-    if (referencePath.endsWith(".fa") || referencePath.endsWith(".fasta") || !sc.isLocal) {
-      // load whole reference file
-      put(None)
-      bookkeep ++= dictionary.records.map(_.name)
-    }
-    dictionary
-  }
-
-  def stringifyRaw(data: RDD[(ReferenceRegion, String)], region: ReferenceRegion): String = {
-    val str: Tuple2[ReferenceRegion, String] = data.collect
-      .sortBy(_._1.start)
-      .reduce((a, b) => (a._1.hull(b._1), a._2 + b._2))
-    VizUtils.trimSequence(str._2, str._1, region)
-  }
-
-  def setSequenceDictionary(filePath: String): SequenceDictionary = {
-    if (ResourceUtils.isLocal(filePath, sc)) {
-      if (filePath.endsWith(".fa") || filePath.endsWith(".fasta")) {
-        val createObj = new CreateSequenceDictionary
-        val dict: SAMSequenceDictionary = createObj.makeSequenceDictionary(new File(filePath))
-        SequenceDictionary(dict)
-      } else if (filePath.endsWith(".adam")) {
-        sc.loadDictionary[NucleotideContigFragment](filePath)
-      } else {
-        throw UnsupportedFileException("File type not supported")
-      }
-    } else {
-      require(filePath.endsWith(".adam"), "To generate SequenceDictionary on remote cluster, must use adam files")
-      sc.loadDictionary[NucleotideContigFragment](filePath)
-    }
-  }
-
 }

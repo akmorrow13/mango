@@ -37,13 +37,13 @@ class ReferenceMaterializationSuite extends MangoFunSuite {
     assert(response.length == region.length)
   }
 
-  sparkTest("assert chunk size specification correctly resizes fragments") {
-    val chunkSize = 100
-    val refRDD = new ReferenceMaterialization(sc, referencePath)
-    val response: String = refRDD.getReferenceString(region)
-    val first = refRDD.intRDD.toRDD.first._2
-    assert(first.length == chunkSize)
-  }
+  //  sparkTest("assert chunk size specification correctly resizes fragments") {
+  //    val chunkSize = 100
+  //    val refRDD = new ReferenceMaterialization(sc, referencePath)
+  //    val response: String = refRDD.getReferenceString(region)
+  //    val first = refRDD.intRDD.toRDD.first._2
+  //    assert(first.length == chunkSize)
+  //  }
 
   sparkTest("assert Reference RDDs with different chunk sizes result in same output sequence") {
     val chunkSize1 = 100
