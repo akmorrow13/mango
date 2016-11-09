@@ -33,8 +33,7 @@ abstract class LazyMaterialization[T: ClassTag](name: String) extends Serializab
 
   def sc: SparkContext
   def sd: SequenceDictionary
-  def chunkSize = 20000
-  val prefetchSize = 10000
+  val prefetchSize = 1000000
   val bookkeep = new Bookkeep(prefetchSize)
   var memoryFraction = 0.85 // default caching fraction
 

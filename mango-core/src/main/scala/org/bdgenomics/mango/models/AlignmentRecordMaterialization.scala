@@ -88,15 +88,15 @@ class AlignmentRecordMaterialization(s: SparkContext,
     AlignmentTimers.getCoverageData.time {
       val covCounts: RDD[(String, PositionCount)] =
         get(region)
-        .flatMap(r => {
-          val t: List[Long] = List.range(r._2.getStart, r._2.getEnd)
-          t.map(n => ((ReferenceRegion(r._2.getContigName, n, n + 1), r._1), 1))
-            .filter(_._1._1.overlaps(region)) // filter out read fragments not overlapping region
-        }).reduceByKey(_ + _) // reduce coverage by combining adjacent frequenct
-        .map(r => (r._1._2, PositionCount(r._1._1.start, r._1._1.start + 1, r._2)))
+          .flatMap(r => {
+            val t: List[Long] = List.range(r._2.getStart, r._2.getEnd)
+            t.map(n => ((ReferenceRegion(r._2.getContigName, n, n + 1), r._1), 1))
+              .filter(_._1._1.overlaps(region)) // filter out read fragments not overlapping region
+          }).reduceByKey(_ + _) // reduce coverage by combining adjacent frequenct
+          .map(r => (r._1._2, PositionCount(r._1._1.start, r._1._1.start + 1, r._2)))
 
       covCounts.collect.groupBy(_._1) // group by sample Id
-      .map(r => (r._1, write(r._2.map(_._2))))
+        .map(r => (r._1, write(r._2.map(_._2))))
     }
   }
 
