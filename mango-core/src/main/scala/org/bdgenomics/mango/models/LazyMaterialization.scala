@@ -48,6 +48,7 @@ abstract class LazyMaterialization[T: ClassTag](name: String, prefetch: Option[I
 
   def files: List[String]
   def getFiles: List[String] = files
+  def getKeys: List[String] = files.map(f => LazyMaterialization.filterKeyFromFile(f))
   var intRDD: IntervalRDD[ReferenceRegion, (String, T)] = null
 
   /**

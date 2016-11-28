@@ -81,13 +81,14 @@ object VizReads extends BDGCommandCompanion with Logging {
   var genotypeData: Option[GenotypeMaterialization] = None
 
   var featureData: Option[FeatureMaterialization] = None
+  var modelData: Option[ModelMaterialization] = None
 
   // variables tracking whether optional datatypes were loaded
   def readsExist: Boolean = readsData.isDefined
   def coveragesExist: Boolean = coverageData.isDefined
   def variantsExist: Boolean = variantData.isDefined
   def genotypeExist: Boolean = genotypeData.isDefined
-  def featuresExist: Boolean = featureData.isDefined
+  def featuresExist: Boolean = featureData.isDefined || modelData.isDefined
 
   // reads cache
   object readsWait
@@ -118,6 +119,11 @@ object VizReads extends BDGCommandCompanion with Logging {
   object featuresWait
   var featuresCache: Map[String, String] = Map.empty[String, String]
   var featuresRegion: ReferenceRegion = null
+
+  // model cache
+  object modelWait
+  var modelCache: Map[String, String] = Map.empty[String, String]
+  var modelRegion: ReferenceRegion = null
 
   // regions to prefetch during variant discovery. sent to front
   // end for visual processing
@@ -209,6 +215,9 @@ class VizReadsArgs extends Args4jBase with ParquetArgs {
 
   @Args4jOption(required = false, name = "-feat_files", usage = "The feature files to view, separated by commas (,)")
   var featurePaths: String = null
+
+  @Args4jOption(required = false, name = "-keystone_models", usage = "Machine learning models predicted from sequence")
+  var modelPaths: String = null
 
   @Args4jOption(required = false, name = "-port", usage = "The port to bind to for visualization. The default is 8080.")
   var port: Int = 8080
@@ -316,7 +325,18 @@ class VizServlet extends ScalatraServlet {
     }
 
     val featureSamples = try {
-      Some(VizReads.featureData.get.getFiles.map(r => LazyMaterialization.filterKeyFromFile(r)))
+      val featureFiles =
+        if (VizReads.featureData.isDefined) {
+          Some(VizReads.featureData.get.getFiles.map(r => LazyMaterialization.filterKeyFromFile(r)))
+        } else None
+
+      val modelFiles =
+        if (VizReads.modelData.isDefined) {
+          Some(VizReads.modelData.get.getFiles.map(r => LazyMaterialization.filterKeyFromFile(r)))
+        } else None
+      val tmp = (featureFiles ++ modelFiles).toList
+      if (tmp.isEmpty) None
+      else Some(tmp)
     } catch {
       case e: Exception => None
     }
@@ -516,19 +536,32 @@ class VizServlet extends ScalatraServlet {
           VizUtils.getEnd(params("end").toLong, VizReads.globalDict(params("ref"))))
         val key: String = params("key")
         contentType = "json"
-
-        // if region is in bounds of reference, return data
+        // if region is in bounds of reference, return feature data
         val dictOpt = VizReads.globalDict(viewRegion.referenceName)
         if (dictOpt.isDefined) {
           var results: Option[String] = None
-          VizReads.featuresWait.synchronized {
-            // region was already collected, grab from cache
-            if (viewRegion != VizReads.featuresRegion) {
-              VizReads.featuresCache = VizReads.featureData.get.getJson(viewRegion)
-              VizReads.featuresRegion = viewRegion
+          // if key is a feature, return from FeatureMaterialization
+          if (VizReads.featureData.get.getKeys.contains(key)) {
+            VizReads.featuresWait.synchronized {
+              // region was already collected, grab from cache
+              if (viewRegion != VizReads.featuresRegion) {
+                VizReads.featuresCache = VizReads.featureData.get.getJson(viewRegion)
+                VizReads.featuresRegion = viewRegion
+              }
+              results = VizReads.featuresCache.get(key)
             }
-            results = VizReads.featuresCache.get(key)
+            // if key represents model, return model data
+          } else if (VizReads.modelData.get.getKeys.contains(key)) {
+            VizReads.modelWait.synchronized {
+              // region was already collected, grab from cache
+              if (viewRegion != VizReads.modelRegion) {
+                VizReads.featuresCache = VizReads.modelData.get.get(viewRegion)
+                VizReads.modelRegion = viewRegion
+              }
+              results = VizReads.modelCache.get(key)
+            }
           }
+
           if (results.isDefined) {
             Ok(results.get)
           } else VizReads.errors.noContent(viewRegion)
@@ -582,6 +615,7 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
     initVariants
     initGenotypes
     initFeatures
+    initModels
 
     // run discovery mode if it is specified in the startup script
     if (args.discoveryMode) {
@@ -671,6 +705,14 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
         if (featurePaths.nonEmpty) {
           VizReads.featureData = Some(new FeatureMaterialization(sc, featurePaths, VizReads.globalDict))
         }
+      }
+    }
+
+    def initModels() = {
+      if (Option(args.modelPaths).isDefined) {
+        // filter out incorrect file formats
+        val modelPaths = args.modelPaths.split(",").toList
+        VizReads.modelData = Some(new ModelMaterialization(VizReads.annotationRDD, modelPaths))
       }
     }
 
