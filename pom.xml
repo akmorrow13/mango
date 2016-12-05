@@ -17,10 +17,10 @@
   <name>mango: an ADAM-based genomics visualization toolkit</name>
 
   <properties>
-    <adam.version>0.20.1-SNAPSHOT</adam.version>
+    <adam.version>0.20.2-SNAPSHOT</adam.version>
     <avro.version>1.8.0</avro.version>
     <bdg-formats.version>0.10.0</bdg-formats.version>
-    <bdg-utils.version>0.2.8</bdg-utils.version>
+    <bdg-utils.version>0.2.11-SNAPSHOT</bdg-utils.version>
     <java.version>1.8</java.version>
     <jetty.version>9.2.17.v20160517</jetty.version>
     <hadoop.version>2.6.0</hadoop.version>
@@ -34,6 +34,7 @@
     <spark.version>1.6.1</spark.version>
     <spark.version.prefix>_</spark.version.prefix>
     <snappy.version>1.0.5</snappy.version>
+    <endive.version>0.0.1-SNAPSHOT</endive.version>
   </properties>
 
   <modules>
@@ -568,6 +569,52 @@
         <groupId>org.xerial.snappy</groupId>
         <artifactId>snappy-java</artifactId>
         <version>${snappy.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.github.fommil.netlib</groupId>
+        <artifactId>all</artifactId>
+        <version>1.1.2</version>
+        <type>pom</type>
+      </dependency>
+      <dependency>
+        <groupId>net.akmorrow13</groupId>
+        <artifactId>endive</artifactId>
+        <version>${endive.version}</version>
+        <exclusions>
+          <exclusion>
+            <groupId>com.github.fommil.netlib</groupId>
+            <artifactId>all</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-core_${scala.version.prefix}</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>org.xerial.snappy</groupId>
+            <artifactId>snappy-java</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-server</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-servlet</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>org.eclipse.jetty.orbit</groupId>
+            <artifactId>javax.servlet</artifactId>
+          </exclusion>
+          <exclusion>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-client</artifactId>
+          </exclusion>
+        </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>net.fnothaft</groupId>
+        <artifactId>fig</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

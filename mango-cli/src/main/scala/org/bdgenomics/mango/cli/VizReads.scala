@@ -216,7 +216,7 @@ class VizReadsArgs extends Args4jBase with ParquetArgs {
   @Args4jOption(required = false, name = "-feat_files", usage = "The feature files to view, separated by commas (,)")
   var featurePaths: String = null
 
-  @Args4jOption(required = false, name = "-keystone_models", usage = "Machine learning models predicted from sequence")
+  @Args4jOption(required = false, name = "-keystone_models", usage = "Machine learning models predicted from sequence data")
   var modelPaths: String = null
 
   @Args4jOption(required = false, name = "-port", usage = "The port to bind to for visualization. The default is 8080.")
@@ -334,7 +334,7 @@ class VizServlet extends ScalatraServlet {
         if (VizReads.modelData.isDefined) {
           Some(VizReads.modelData.get.getFiles.map(r => LazyMaterialization.filterKeyFromFile(r)))
         } else None
-      val tmp = (featureFiles ++ modelFiles).toList
+      val tmp = (featureFiles ++ modelFiles).flatten.toList
       if (tmp.isEmpty) None
       else Some(tmp)
     } catch {
@@ -541,27 +541,33 @@ class VizServlet extends ScalatraServlet {
         if (dictOpt.isDefined) {
           var results: Option[String] = None
           // if key is a feature, return from FeatureMaterialization
-          if (VizReads.featureData.get.getKeys.contains(key)) {
-            VizReads.featuresWait.synchronized {
-              // region was already collected, grab from cache
-              if (viewRegion != VizReads.featuresRegion) {
-                VizReads.featuresCache = VizReads.featureData.get.getJson(viewRegion)
-                VizReads.featuresRegion = viewRegion
+          if (VizReads.featureData.isDefined) {
+            if (VizReads.featureData.get.getKeys.contains(key)) {
+              VizReads.featuresWait.synchronized {
+                // region was already collected, grab from cache
+                if (viewRegion != VizReads.featuresRegion) {
+                  VizReads.featuresCache = VizReads.featureData.get.getJson(viewRegion)
+                  VizReads.featuresRegion = viewRegion
+                }
+                results = VizReads.featuresCache.get(key)
               }
-              results = VizReads.featuresCache.get(key)
             }
             // if key represents model, return model data
-          } else if (VizReads.modelData.get.getKeys.contains(key)) {
-            VizReads.modelWait.synchronized {
-              // region was already collected, grab from cache
-              if (viewRegion != VizReads.modelRegion) {
-                VizReads.featuresCache = VizReads.modelData.get.get(viewRegion)
-                VizReads.modelRegion = viewRegion
+          }
+          if (VizReads.modelData.isDefined) {
+            if (VizReads.modelData.get.getKeys.contains(key)) {
+              // wait for reference sequence
+
+              VizReads.modelWait.synchronized {
+                // region was already collected, grab from cache
+                if (viewRegion != VizReads.modelRegion) {
+                  VizReads.modelCache = VizReads.modelData.get.get(viewRegion)
+                  VizReads.modelRegion = viewRegion
+                }
+                results = VizReads.modelCache.get(key)
               }
-              results = VizReads.modelCache.get(key)
             }
           }
-
           if (results.isDefined) {
             Ok(results.get)
           } else VizReads.errors.noContent(viewRegion)

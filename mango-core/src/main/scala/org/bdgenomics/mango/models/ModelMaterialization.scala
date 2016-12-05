@@ -16,12 +16,16 @@
  * limitations under the License.
  */
 package org.bdgenomics.mango.models
+import net.fnothaft.fig.models.Motif
 
 import net.liftweb.json.Serialization.write
 import org.bdgenomics.adam.models.ReferenceRegion
-import org.bdgenomics.formats.avro.Feature
 import org.bdgenomics.mango.layout.BedRowJson
+import org.bdgenomics.mango.util.Bookkeep
+import org.bdgenomics.utils.instrumentation.Metrics
+import org.bdgenomics.utils.intervalarray.IntervalArray
 import org.bdgenomics.utils.misc.Logging
+import net.akmorrow13.endive.pipelines.ModelServer
 
 /**
  * Serves Keystone machine learning models that take (ReferenceRegion, sequence) as input
@@ -32,6 +36,10 @@ import org.bdgenomics.utils.misc.Logging
 class ModelMaterialization(reference: AnnotationMaterialization,
                            filePaths: List[String]) extends Serializable with Logging {
 
+  val bookkeep: Bookkeep = new Bookkeep(2000)
+  var cache: IntervalArray[ReferenceRegion, List[BedRowJson]] =
+    new IntervalArray(Array.empty[(ReferenceRegion, List[BedRowJson])], 200)
+
   @transient implicit val formats = net.liftweb.json.DefaultFormats
   val error = 0.01
   val models = filePaths.map(r => ModelServer(r))
@@ -41,43 +49,57 @@ class ModelMaterialization(reference: AnnotationMaterialization,
 
   def get(region: ReferenceRegion): Map[String, String] = {
 
-    // region is too large, return no valid data
-    if (region.length > 5000) {
-      println("region is too large")
-      models.map(m => m.name).map(m => (m, "")).toMap
-    } else {
-      val in = (region, reference.getReferenceString(region))
-      val flattened: Map[String, Array[BedRowJson]] =
-        models.map(m => (m.name, m.serve(in).filter(_.getScore > error)))
-          .map(r => (LazyMaterialization.filterKeyFromFile(r._1),
-            r._2.map(f => BedRowJson(r._1, "model", f.getContigName, f.getStart, f.getEnd)))) // TODO: put in score for frontend
-          .toMap
-      flattened.mapValues(r => write(r))
+    // check cache to see if values were already calculated
+    val regionsOpt = bookkeep.getMissingRegions(region, filePaths)
+    if (regionsOpt.isDefined) {
+      for (r <- regionsOpt.get) {
+        put(r)
+      }
+    }
+    cache.get(region).map(_._2).flatten
+      .groupBy(_.id)
+      .map(r => (r._1, write(r._2)))
+  }
+
+  def put(region: ReferenceRegion) = {
+
+    // drop values if new chr is read in
+    if (!bookkeep.queue.contains(region.referenceName)) {
+      try {
+        val dropped = bookkeep.dropValues() // drop last chr
+        cache = cache.filter(r => r._1.referenceName != dropped)
+      }
     }
 
+    ModelTimers.ModelServerRequest.time {
+      // region is too large, return no valid data
+      if (region.length > 10000) {
+        log.warn("region is too large")
+        models.map(m => m.name).map(m => (m, "")).toMap
+      } else {
+        val in =
+          ModelTimers.GetSequenceRequest.time {
+            (region, reference.getReferenceString(region))
+          }
+        println(in)
+        val flattened: List[BedRowJson] =
+          models.map(m => (m.name, m.serve(in).filter(_.getScore > error)))
+            .flatMap(r => r._2.map(f => BedRowJson(LazyMaterialization.filterKeyFromFile(r._1), "model",
+              f.getContigName, f.getStart, f.getEnd))) // TODO: put in score for frontend
+
+        println(flattened)
+        // insert elements into cache
+        cache = cache.insert(Iterator((region, flattened)))
+
+        // remember this region
+        bookkeep.rememberValues(region, filePaths)
+      }
+    }
   }
+
 }
 
-// TODO: remove and replace with ENDIVE
-case class ModelServer(filePath: String) {
-
-  def name = filePath
-
-  def serve(in: (ReferenceRegion, String)): Array[Feature] = {
-    val region = in._1
-
-    val regions = Array.range(0, in._1.length().toInt)
-      .sliding(200, 50)
-      .map(r => ReferenceRegion(region.referenceName, r.head + region.start, r.head + region.start + r.length))
-      .toArray
-
-    regions.map(r => {
-      Feature.newBuilder()
-        .setContigName(r.referenceName)
-        .setStart(r.start)
-        .setEnd(r.end)
-        .setScore(1.0)
-        .build()
-    })
-  }
+object ModelTimers extends Metrics {
+  val ModelServerRequest = timer("serve model")
+  val GetSequenceRequest = timer("get sequence for model")
 }

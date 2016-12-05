@@ -29,6 +29,8 @@ class ModelMaterializationSuite extends MangoFunSuite {
 
   // test reference data
   var referencePath = resourcePath("mm10_chrM.fa")
+  val modelPath = resourcePath("model_4096.model")
+  val modelKey = LazyMaterialization.filterKeyFromFile(modelPath)
   val region = ReferenceRegion("chrM", 0, 500)
 
   val dict = new SequenceDictionary(Vector(SequenceRecord("chrM", 16699L)))
@@ -36,7 +38,7 @@ class ModelMaterializationSuite extends MangoFunSuite {
   sparkTest("assert model scores sequences over small range") {
     val reference = new AnnotationMaterialization(sc, referencePath)
 
-    val filePaths = List("model1", "model2")
+    val filePaths = List(modelPath)
 
     val data = new ModelMaterialization(reference, filePaths)
 
@@ -44,9 +46,9 @@ class ModelMaterializationSuite extends MangoFunSuite {
 
     val json = data.get(region)
     assert(json.size == filePaths.length)
-    val model1 = parse(json.get("model1").get).extract[Array[BedRowJson]]
+    val model1 = parse(json.get(modelKey).get).extract[Array[BedRowJson]]
 
-    assert(model1.length == 7)
+    assert(model1.length > 0)
 
   }
 

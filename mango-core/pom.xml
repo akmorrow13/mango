@@ -151,5 +151,13 @@
       <artifactId>hadoop-bam</artifactId>
       <scope>compile</scope>
     </dependency>
+    <dependency>
+      <groupId>net.akmorrow13</groupId>
+      <artifactId>endive</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>net.fnothaft</groupId>
+      <artifactId>fig</artifactId>
+    </dependency>
   </dependencies>
 </project>

@@ -203,4 +203,10 @@ object LazyMaterialization {
   }
 }
 
+//object RegionCache[T: ClassTag] {
+//  val regions = Array[ReferenceRegion]()
+//
+//  val objects = Array[]
+//}
+
 case class UnsupportedFileException(message: String) extends Exception(message)
