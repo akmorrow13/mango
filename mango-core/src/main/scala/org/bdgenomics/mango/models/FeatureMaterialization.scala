@@ -106,7 +106,7 @@ object FeatureMaterialization {
   def loadAdam(sc: SparkContext, region: Option[ReferenceRegion], fp: String): FeatureRDD = {
     val pred: Option[FilterPredicate] =
       region match {
-        case Some(_) => Some(((LongColumn("end") >= region.get.start) && (LongColumn("start") <= region.get.end) && (BinaryColumn("contig.contigName") === region.get.referenceName)))
+        case Some(_) => Some(((LongColumn("end") >= region.get.start) && (LongColumn("start") <= region.get.end) && (BinaryColumn("contigName") === region.get.referenceName)))
         case None    => None
       }
 
