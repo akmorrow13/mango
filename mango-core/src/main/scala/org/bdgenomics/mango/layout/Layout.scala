@@ -18,6 +18,10 @@
  */
 package org.bdgenomics.mango.layout
 
+import net.liftweb.json.Serialization.write
+import net.liftweb.json._
+import org.bdgenomics.formats.avro.Variant
+
 /**
  * This file contains case classes for json conversions
  */
@@ -37,14 +41,59 @@ case class Interval(start: Long, end: Long)
  * @param alt alternate
  * @param end end of variant
  */
-case class VariantJson(contig: String, position: Long, ref: String, alt: String, end: Long)
+case class VariantJson(contig: String, position: Long, end: Long, ref: String, alt: String)
+
+object VariantJson {
+  def apply(variant: Variant): VariantJson = {
+    VariantJson(variant.getContigName, variant.getStart, variant.getEnd, variant.getReferenceAllele, variant.getAlternateAllele)
+  }
+}
 
 /**
  * Class for printing json genotypes to pileup.js
- * @param sampleIds sample Ids for this genotype
  * @param variant variant of this genotype
+ * @param sampleIds sample Ids for this genotype
  */
-case class GenotypeJson(sampleIds: Array[String], variant: VariantJson)
+case class GenotypeJson(variant: Variant, sampleIds: Array[String]) {
+
+  override def toString(): String = {
+
+    // required for writing json
+    @transient implicit val formats = net.liftweb.json.DefaultFormats
+
+    write(Tuple2(VariantJson(variant), sampleIds))(formats)
+  }
+
+}
+
+/**
+ * Object used to convert json strings into GenotypeJson classes
+ */
+object GenotypeJson {
+
+  // required for json extraction
+  @transient implicit val formats = net.liftweb.json.DefaultFormats
+
+  /**
+   * Rebuilds GenotypeJson and its Variant from VariantJson. Some Variant components are lost when rebuilding,
+   * but are not used for the final visualization.
+   * @param str String to convert to GenotypeJson
+   * @return final GenotypeJson
+   */
+  def apply(str: String): GenotypeJson = {
+    val tuple = parse(str).extract[Tuple2[VariantJson, Array[String]]]
+    val variant = Variant.newBuilder()
+      .setContigName(tuple._1.contig)
+      .setStart(tuple._1.position)
+      .setEnd(tuple._1.end)
+      .setReferenceAllele(tuple._1.ref)
+      .setAlternateAllele(tuple._1.alt)
+      .build()
+
+    new GenotypeJson(variant, tuple._2)
+  }
+
+}
 
 /**
  * Class for printing json features to pileup.js

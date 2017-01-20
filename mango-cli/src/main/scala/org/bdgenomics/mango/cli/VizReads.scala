@@ -23,11 +23,10 @@ import net.liftweb.json._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext
 import org.bdgenomics.adam.models.{ ReferenceRegion, SequenceDictionary }
-import org.bdgenomics.formats.avro.{ Feature, Genotype }
 import org.bdgenomics.mango.core.util.VizUtils
 import org.bdgenomics.mango.filters._
+import org.bdgenomics.mango.layout.{ VariantJson, GenotypeJson }
 import org.bdgenomics.mango.models._
-import org.bdgenomics.mango.util.Bookkeep
 import org.bdgenomics.utils.cli._
 import org.bdgenomics.utils.instrumentation.Metrics
 import org.bdgenomics.utils.misc.Logging
@@ -77,16 +76,14 @@ object VizReads extends BDGCommandCompanion with Logging {
 
   var coverageData: Option[CoverageMaterialization] = None
 
-  var variantData: Option[VariantMaterialization] = None
-  var genotypeData: Option[GenotypeMaterialization] = None
+  var variantContextData: Option[VariantContextMaterialization] = None
 
   var featureData: Option[FeatureMaterialization] = None
 
   // variables tracking whether optional datatypes were loaded
   def readsExist: Boolean = readsData.isDefined
   def coveragesExist: Boolean = coverageData.isDefined
-  def variantsExist: Boolean = variantData.isDefined
-  def genotypeExist: Boolean = genotypeData.isDefined
+  def variantsExist: Boolean = variantContextData.isDefined
   def featuresExist: Boolean = featureData.isDefined
 
   // reads cache
@@ -108,11 +105,6 @@ object VizReads extends BDGCommandCompanion with Logging {
   object variantsWait
   var variantsCache: Map[String, String] = Map.empty[String, String]
   var variantsRegion: ReferenceRegion = null
-
-  // variant cache
-  object genotypesWait
-  var genotypesCache: Map[String, String] = Map.empty[String, String]
-  var genotypesRegion: ReferenceRegion = null
 
   // features cache
   object featuresWait
@@ -206,9 +198,6 @@ class VizReadsArgs extends Args4jBase with ParquetArgs {
     "Vcf files require a corresponding tbi index.")
   var variantsPaths: String = null
 
-  @Args4jOption(required = false, name = "-genotypes", usage = "A list of genotype files to view, separated by commas (,)")
-  var genotypesPaths: String = null
-
   @Args4jOption(required = false, name = "-features", usage = "The feature files to view, separated by commas (,)")
   var featurePaths: String = null
 
@@ -300,13 +289,7 @@ class VizServlet extends ScalatraServlet {
     }
 
     val variantSamples = try {
-      Some(VizReads.variantData.get.getFiles.map(r => LazyMaterialization.filterKeyFromFile(r)))
-    } catch {
-      case e: Exception => None
-    }
-
-    val genotypeSamples = try {
-      Some(VizReads.genotypeData.get.getFiles.map(r => LazyMaterialization.filterKeyFromFile(r)))
+      Some(VizReads.variantContextData.get.getGenotypeSamples().map(r => (LazyMaterialization.filterKeyFromFile(r._1), r._2)))
     } catch {
       case e: Exception => None
     }
@@ -323,7 +306,6 @@ class VizServlet extends ScalatraServlet {
         "reads" -> readsSamples,
         "coverage" -> coverageSamples,
         "variants" -> variantSamples,
-        "genotypes" -> genotypeSamples,
         "features" -> featureSamples,
         "contig" -> session("referenceRegion").asInstanceOf[ReferenceRegion].referenceName,
         "start" -> session("referenceRegion").asInstanceOf[ReferenceRegion].start.toString,
@@ -438,7 +420,7 @@ class VizServlet extends ScalatraServlet {
 
   get("/genotypes/:key/:ref") {
     VizTimers.VarRequest.time {
-      if (!VizReads.genotypeExist)
+      if (!VizReads.variantsExist)
         VizReads.errors.notFound
       else {
         val viewRegion = ReferenceRegion(params("ref"), params("start").toLong,
@@ -449,18 +431,30 @@ class VizServlet extends ScalatraServlet {
         // if region is in bounds of reference, return data
         val dictOpt = VizReads.globalDict(viewRegion.referenceName)
         if (dictOpt.isDefined) {
-          var results: Option[String] = None
-          VizReads.genotypesWait.synchronized {
-            // region was already collected, grab from cache
-            if (viewRegion != VizReads.genotypesRegion) {
-              VizReads.genotypesCache = VizReads.genotypeData.get.getJson(viewRegion)
-              VizReads.genotypesRegion = viewRegion
+          val binning: Int =
+            try
+              params("binning").toInt
+            catch {
+              case e: Exception => 1
             }
-            results = VizReads.genotypesCache.get(key)
+          // hide genotypes at large ranges
+          if (binning > 1) {
+            VizReads.errors.largeRegion
+          } else {
+            var results: Option[String] = None
+
+            VizReads.variantsWait.synchronized {
+              // region was already collected, grab from cache
+              if (viewRegion != VizReads.variantsRegion) {
+                VizReads.variantsCache = VizReads.variantContextData.get.getJson(viewRegion, binning)
+                VizReads.variantsRegion = viewRegion
+              }
+              results = VizReads.variantsCache.get(key)
+            }
+            if (results.isDefined) {
+              Ok(results.get)
+            } else VizReads.errors.noContent(viewRegion)
           }
-          if (results.isDefined) {
-            Ok(results.get)
-          } else VizReads.errors.noContent(viewRegion)
         } else VizReads.errors.outOfBounds
       }
     }
@@ -489,14 +483,14 @@ class VizServlet extends ScalatraServlet {
           VizReads.variantsWait.synchronized {
             // region was already collected, grab from cache
             if (viewRegion != VizReads.variantsRegion) {
-              VizReads.variantsCache = VizReads.variantData.get.getVariants(viewRegion, binning)
+              VizReads.variantsCache = VizReads.variantContextData.get.getJson(viewRegion, binning)
               VizReads.variantsRegion = viewRegion
             }
             results = VizReads.variantsCache.get(key)
           }
           if (results.isDefined) {
             // extract variants only and parse to stringified json
-            Ok(results.get)
+            Ok(write(parse(results.get).extract[Array[String]].map(r => VariantJson(GenotypeJson(r).variant))))
           } else VizReads.errors.noContent(viewRegion)
         } else VizReads.errors.outOfBounds
       }
@@ -580,8 +574,7 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
     initAnnotations
     initAlignments
     initCoverages
-    initVariants
-    initGenotypes
+    initVariantContext
     initFeatures
 
     // run discovery mode if it is specified in the startup script
@@ -639,25 +632,12 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
     /**
      * Initialize loaded variant files
      */
-    def initVariants() = {
+    def initVariantContext() = {
       if (Option(args.variantsPaths).isDefined) {
         val variantsPaths = args.variantsPaths.split(",").toList
 
         if (variantsPaths.nonEmpty) {
-          VizReads.variantData = Some(new VariantMaterialization(sc, variantsPaths, VizReads.globalDict, Some(prefetch)))
-        }
-      }
-    }
-
-    /**
-     * Initialize loaded genotype files
-     */
-    def initGenotypes() = {
-      if (Option(args.genotypesPaths).isDefined) {
-        val genotypesPaths = args.genotypesPaths.split(",").toList
-
-        if (genotypesPaths.nonEmpty) {
-          VizReads.genotypeData = Some(new GenotypeMaterialization(sc, genotypesPaths, VizReads.globalDict, Some(prefetch)))
+          VizReads.variantContextData = Some(new VariantContextMaterialization(sc, variantsPaths, VizReads.globalDict, Some(prefetch)))
         }
       }
     }
@@ -694,7 +674,7 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
 
       // get variant frequency
       if (VizReads.variantsExist) {
-        val variantRegions = VizReads.variantData.get.getAll().map(ReferenceRegion(_))
+        val variantRegions = VizReads.variantContextData.get.getAll().map(r => ReferenceRegion(r.variant))
         regions = regions ++ discovery.getFrequencies(variantRegions)
       }
 
@@ -732,10 +712,8 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
           VizReads.readsData.get.get(region)
         if (VizReads.coverageData.isDefined)
           VizReads.coverageData.get.get(region)
-        if (VizReads.variantData.isDefined)
-          VizReads.variantData.get.get(region)
-        if (VizReads.genotypeData.isDefined)
-          VizReads.genotypeData.get.get(region)
+        if (VizReads.variantContextData.isDefined)
+          VizReads.variantContextData.get.get(region)
       }
     }
 

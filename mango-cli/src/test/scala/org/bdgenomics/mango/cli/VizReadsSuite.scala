@@ -21,7 +21,7 @@ import net.liftweb.json._
 import org.bdgenomics.mango.layout._
 import org.bdgenomics.mango.models.LazyMaterialization
 import org.bdgenomics.mango.util.MangoFunSuite
-import org.scalatra.Ok
+import org.scalatra.{ RequestEntityTooLarge, Ok }
 import org.scalatra.test.scalatest.ScalatraSuite
 
 class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
@@ -31,7 +31,7 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
 
   val bamFile = ClassLoader.getSystemClassLoader.getResource("mouse_chrM.bam").getFile
   val referenceFile = ClassLoader.getSystemClassLoader.getResource("mm10_chrM.fa").getFile
-  val vcfFile = ClassLoader.getSystemClassLoader.getResource("truetest.vcf").getFile
+  val vcfFile = ClassLoader.getSystemClassLoader.getResource("truetest.genotypes.vcf").getFile
   val featureFile = ClassLoader.getSystemClassLoader.getResource("smalltest.bed").getFile
   val coverageFile = ClassLoader.getSystemClassLoader.getResource("mouse_chrM.coverage.adam").getFile
 
@@ -46,7 +46,6 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
   args.variantsPaths = vcfFile
   args.featurePaths = featureFile
   args.testMode = true
-  args.genotypesPaths = vcfFile
 
   sparkTest("Should pass for discovery mode") {
     val args = new VizReadsArgs()
@@ -92,9 +91,10 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
     implicit val VizReads = runVizReads(args)
     get(s"/variants/${vcfKey}/chrM?start=0&end=100") {
       assert(status == Ok("").status.code)
-      val x = response.getContent()
       val json = parse(response.getContent()).extract[Array[VariantJson]]
+        .sortBy(_.position)
       assert(json.length == 3)
+      assert(json.head.position == 19)
     }
   }
 
@@ -102,8 +102,17 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
     implicit val VizReads = runVizReads(args)
     get(s"/genotypes/${vcfKey}/chrM?start=0&end=100") {
       assert(status == Ok("").status.code)
-      val json = parse(response.getContent()).extract[Array[GenotypeJson]]
+      val json = parse(response.getContent()).extract[Array[String]].map(r => GenotypeJson(r))
       assert(json.length == 3)
+      assert(json.head.sampleIds.length == 2)
+
+    }
+  }
+
+  sparkTest("does not return genotypes when binned") {
+    implicit val VizReads = runVizReads(args)
+    get(s"/genotypes/${vcfKey}/chrM?start=0&end=100&binning=100") {
+      assert(status == RequestEntityTooLarge("Region too large").status.code)
     }
   }
 

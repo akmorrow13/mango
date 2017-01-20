@@ -2,8 +2,7 @@
 <%@ val genes:          Option[String] %>
 <%@ val coverage:  Option[List[String]] %>
 <%@ val reads:     Option[List[(String, Option[String])]] %>
-<%@ val variants:  Option[List[String]] %>
-<%@ val genotypes:  Option[List[String]] %>
+<%@ val variants:  Option[List[(String, Seq[String])]] %>
 <%@ val features:  Option[List[String]] %>
 <%@ val contig: String %>
 <%@ val start: String %>
@@ -81,21 +80,19 @@
                             {
                             viz: pileup.viz.variants(),
                             data: pileup.formats.variants({
-                                url: '/variants/${s}'
+                                url: '/variants/${s._1}'
                             }),
-                            name: '${s}'
+                            name: '${s._1}'
                             },
-                        #end
-                    #end
-                    #if (genotypes.isDefined)
-                        #for (s <- genotypes.get)
-                            {
-                            viz: pileup.viz.genotypes(),
-                            data: pileup.formats.genotypes({
-                            url: '/genotypes/${s}'
-                            }),
-                            name: 'Genotypes'
-                            },
+                            #if (!s._2.isEmpty)
+                                {
+                                viz: pileup.viz.genotypes(),
+                                data: pileup.formats.genotypes({
+                                url: '/genotypes/${s._1}'
+                                }),
+                                name: 'Genotypes'
+                                },
+                            #end
                         #end
                     #end
                     #if (features.isDefined)
