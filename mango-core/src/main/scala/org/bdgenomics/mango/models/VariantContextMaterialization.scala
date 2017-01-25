@@ -28,24 +28,21 @@ import org.bdgenomics.adam.models.{ ReferenceRegion, SequenceDictionary }
 import org.bdgenomics.adam.projections.{ Projection, VariantField }
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.variant.{ VariantContextRDD }
+import org.bdgenomics.formats.avro.GenotypeAllele
 import org.bdgenomics.mango.layout.GenotypeJson
 
 /*
  * Handles loading and tracking of data from persistent storage into memory for Variant data.
  * @see LazyMaterialization.scala
  */
-class VariantContextMaterialization(s: SparkContext,
-                                    filePaths: List[String],
-                                    dict: SequenceDictionary,
+class VariantContextMaterialization(@transient sc: SparkContext,
+                                    files: List[String],
+                                    sd: SequenceDictionary,
                                     prefetchSize: Option[Int] = None)
-    extends LazyMaterialization[GenotypeJson]("VariantContextRDD", prefetchSize)
+    extends LazyMaterialization[GenotypeJson]("VariantContextRDD", sc, files, sd, prefetchSize)
     with Serializable {
 
-  @transient val sc = s
   @transient implicit val formats = net.liftweb.json.DefaultFormats
-  val sd = dict
-  val files = filePaths
-
   // placeholder used for ref/alt positions to display in browser
   val variantPlaceholder = "N"
 
@@ -98,39 +95,46 @@ class VariantContextMaterialization(s: SparkContext,
    * @param binning Tells what granularity of coverage to return. Used for large regions
    * @return JSONified data map;
    */
-  def getJson(region: ReferenceRegion, binning: Int = 1): Map[String, String] = {
+  def getJson(region: ReferenceRegion,
+              showGenotypes: Boolean,
+              binning: Int = 1): Map[String, String] = {
     val data: RDD[(String, GenotypeJson)] = get(region)
-    if (binning <= 1) {
-      return stringify(data)
-    } else {
-      val binnedData = data
-        .map(r => {
-          // Add bin to key
-          ((r._1, (r._2.variant.getStart / binning).toInt), r._2)
-        })
-        .reduceByKey((a, b) => {
-          if (a.variant.getEnd < b.variant.getEnd) {
-            a.variant.setEnd(b.variant.getEnd)
-          }
-          if (a.variant.getStart > b.variant.getStart) {
-            a.variant.setStart(b.variant.getStart)
-          }
-          // Determine if the ref alleles match and if the starting indices are the same (due to binning)
-          if (a.variant.getReferenceAllele != b.variant.getReferenceAllele || a.variant.getStart != b.variant.getStart) {
-            a.variant.setReferenceAllele(variantPlaceholder)
-          }
-          // Determine if the alt alleles match and if the starting indices are the same (due to binning)
-          if (a.variant.getAlternateAllele != b.variant.getAlternateAllele || a.variant.getStart != b.variant.getStart) {
-            a.variant.setAlternateAllele(variantPlaceholder)
-          }
-          a
-        })
-        .map(r => {
-          // Remove bin from key, nullify genotypes over large ranges
-          (r._1._1, GenotypeJson(r._2.variant, null))
-        })
-      stringify(binnedData)
-    }
+
+    val binnedData =
+      if (binning <= 1) {
+        if (!showGenotypes)
+          data.map(r => (r._1, GenotypeJson(r._2.variant, null)))
+        else data
+      } else {
+        data
+          .map(r => {
+            // Add bin to key
+            ((r._1, (r._2.variant.getStart / binning).toInt), r._2)
+          })
+          .reduceByKey((a, b) => {
+            if (a.variant.getEnd < b.variant.getEnd) {
+              a.variant.setEnd(b.variant.getEnd)
+            }
+            if (a.variant.getStart > b.variant.getStart) {
+              a.variant.setStart(b.variant.getStart)
+            }
+            // Determine if the ref alleles match and if the starting indices are the same (due to binning)
+            if (a.variant.getReferenceAllele != b.variant.getReferenceAllele || a.variant.getStart != b.variant.getStart) {
+              a.variant.setReferenceAllele(variantPlaceholder)
+            }
+            // Determine if the alt alleles match and if the starting indices are the same (due to binning)
+            if (a.variant.getAlternateAllele != b.variant.getAlternateAllele || a.variant.getStart != b.variant.getStart) {
+              a.variant.setAlternateAllele(variantPlaceholder)
+            }
+            a
+          })
+          .map(r => {
+            // Remove bin from key, nullify genotypes over large ranges
+            (r._1._1, GenotypeJson(r._2.variant, null))
+          })
+      }
+    stringify(binnedData)
+
   }
 
   /**
@@ -138,8 +142,8 @@ class VariantContextMaterialization(s: SparkContext,
    *
    * @return List of filenames their corresponding Seq of SampleIds.
    */
-  def getGenotypeSamples(): List[(String, Seq[String])] = {
-    files.map(fp => (fp, VariantContextMaterialization.load(sc, fp, None).samples.map(_.getSampleId)))
+  def getGenotypeSamples(): List[(String, List[String])] = {
+    files.map(fp => (fp, VariantContextMaterialization.load(sc, fp, None).samples.map(_.getSampleId).toList))
   }
 }
 
@@ -219,6 +223,10 @@ object VariantContextMaterialization {
    * @return Converted json RDD
    */
   private def toGenotypeJsonRDD(v: VariantContextRDD): RDD[GenotypeJson] = {
-    v.rdd.map(r => new GenotypeJson(r.variant.variant, r.genotypes.map(_.getSampleId).toArray))
+    v.rdd.map(r => {
+      // filter out genotypes with only reference alleles
+      val genotypes = r.genotypes.filter(_.getAlleles.toArray.filter(_ != GenotypeAllele.REF).length > 0)
+      new GenotypeJson(r.variant.variant, genotypes.map(_.getSampleId).toArray)
+    })
   }
 }

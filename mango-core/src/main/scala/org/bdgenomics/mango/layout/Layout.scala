@@ -49,6 +49,8 @@ object VariantJson {
   }
 }
 
+case class GenotypeString(variant: VariantJson, sampleIds: Array[String])
+
 /**
  * Class for printing json genotypes to pileup.js
  * @param variant variant of this genotype
@@ -61,7 +63,7 @@ case class GenotypeJson(variant: Variant, sampleIds: Array[String]) {
     // required for writing json
     @transient implicit val formats = net.liftweb.json.DefaultFormats
 
-    write(Tuple2(VariantJson(variant), sampleIds))(formats)
+    write(GenotypeString(VariantJson(variant), sampleIds))(formats)
   }
 
 }
@@ -81,16 +83,16 @@ object GenotypeJson {
    * @return final GenotypeJson
    */
   def apply(str: String): GenotypeJson = {
-    val tuple = parse(str).extract[Tuple2[VariantJson, Array[String]]]
+    val tuple = parse(str).extract[GenotypeString]
     val variant = Variant.newBuilder()
-      .setContigName(tuple._1.contig)
-      .setStart(tuple._1.position)
-      .setEnd(tuple._1.end)
-      .setReferenceAllele(tuple._1.ref)
-      .setAlternateAllele(tuple._1.alt)
+      .setContigName(tuple.variant.contig)
+      .setStart(tuple.variant.position)
+      .setEnd(tuple.variant.end)
+      .setReferenceAllele(tuple.variant.ref)
+      .setAlternateAllele(tuple.variant.alt)
       .build()
 
-    new GenotypeJson(variant, tuple._2)
+    new GenotypeJson(variant, tuple.sampleIds)
   }
 
 }

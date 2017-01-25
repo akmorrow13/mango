@@ -88,22 +88,19 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
   }
 
   sparkTest("/variants/:key/:ref") {
+    val args = new VizReadsArgs()
+    args.referencePath = referenceFile
+    args.variantsPaths = vcfFile
+    args.testMode = true
+    args.showGenotypes = true
+
     implicit val VizReads = runVizReads(args)
     get(s"/variants/${vcfKey}/chrM?start=0&end=100") {
       assert(status == Ok("").status.code)
-      val json = parse(response.getContent()).extract[Array[VariantJson]]
-        .sortBy(_.position)
-      assert(json.length == 3)
-      assert(json.head.position == 19)
-    }
-  }
-
-  sparkTest("/genotypes/:key/:ref") {
-    implicit val VizReads = runVizReads(args)
-    get(s"/genotypes/${vcfKey}/chrM?start=0&end=100") {
-      assert(status == Ok("").status.code)
       val json = parse(response.getContent()).extract[Array[String]].map(r => GenotypeJson(r))
+        .sortBy(_.variant.getStart)
       assert(json.length == 3)
+      assert(json.head.variant.getStart == 19)
       assert(json.head.sampleIds.length == 2)
 
     }
@@ -111,8 +108,12 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
 
   sparkTest("does not return genotypes when binned") {
     implicit val VizReads = runVizReads(args)
-    get(s"/genotypes/${vcfKey}/chrM?start=0&end=100&binning=100") {
-      assert(status == RequestEntityTooLarge("Region too large").status.code)
+    get(s"/variants/${vcfKey}/chrM?start=0&end=100&binning=100") {
+      assert(status == Ok("").status.code)
+      val json = parse(response.getContent()).extract[Array[String]].map(r => GenotypeJson(r))
+        .sortBy(_.variant.getStart)
+      assert(json.length == 1)
+      assert(json.head.sampleIds.length == 0)
     }
   }
 

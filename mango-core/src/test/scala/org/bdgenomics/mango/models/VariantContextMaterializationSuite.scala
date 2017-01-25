@@ -100,7 +100,7 @@ class VariantContextMaterializationSuite extends MangoFunSuite {
   sparkTest("does not return genotypes at zoomed out regions") {
     val region = new ReferenceRegion("chrM", 0, 999)
     val data = new VariantContextMaterialization(sc, List(vcfFile1), sd)
-    val json = data.getJson(region, binning = 100).get(key).get
+    val json = data.getJson(region, true, binning = 100).get(key).get
 
     val vAndg = parse(json).extract[Array[String]].map(r => GenotypeJson(r))
       .sortBy(_.variant.getStart)
