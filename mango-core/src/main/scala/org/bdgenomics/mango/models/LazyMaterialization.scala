@@ -17,7 +17,7 @@
  */
 package org.bdgenomics.mango.models
 
-import org.apache.spark._
+import org.apache.spark.{ HashPartitioner, Partitioner, SparkContext }
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
 import org.bdgenomics.adam.models.{ ReferenceRegion, SequenceDictionary }
@@ -50,7 +50,7 @@ abstract class LazyMaterialization[T: ClassTag](name: String,
     memoryFraction = fraction
 
   def getFiles: List[String] = files
-  var intRDD: IntervalRDD[ReferenceRegion, (String, T)] = IntervalRDD(sc.emptyRDD)
+  var intRDD: IntervalRDD[ReferenceRegion, (String, T)] = null
 
   /**
    * Used to generically load data from all file types
@@ -172,18 +172,17 @@ abstract class LazyMaterialization[T: ClassTag](name: String,
       bookkeep.rememberValues(region, files)
 
       // insert into IntervalRDD if there is data
-      if (!data.isEmpty) {
-        if (intRDD.toRDD.isEmpty()) {
-          intRDD = IntervalRDD(data)
-          intRDD.persist(StorageLevel.MEMORY_AND_DISK)
-        } else {
-          val t = intRDD
-          intRDD = intRDD.multiput(data)
-          t.unpersist(true)
-          intRDD.persist(StorageLevel.MEMORY_AND_DISK)
-        }
-        intRDD.setName(name)
+      if (intRDD == null) {
+        // we must repartition in case the data we are adding has no partitioner (i.e., empty RDD)
+        intRDD = IntervalRDD(data).partitionBy(new HashPartitioner(sc.defaultParallelism))
+        intRDD.persist(StorageLevel.MEMORY_AND_DISK)
+      } else {
+        val t = intRDD
+        intRDD = intRDD.multiput(data)
+        t.unpersist(true)
+        intRDD.persist(StorageLevel.MEMORY_AND_DISK)
       }
+      intRDD.setName(name)
     }
   }
 
