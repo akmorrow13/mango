@@ -25,8 +25,6 @@ import org.bdgenomics.adam.rdd.GenomicRegionPartitioner
 import org.bdgenomics.mango.util.Bookkeep
 import org.bdgenomics.utils.interval.rdd.IntervalRDD
 import org.bdgenomics.utils.misc.Logging
-
-import scala.collection.mutable.ListBuffer
 import scala.reflect.ClassTag
 
 /**
@@ -99,22 +97,7 @@ abstract class LazyMaterialization[T: ClassTag](name: String,
    * @param region: ReferenceRegion to fetch
    * @return Map of sampleIds and corresponding JSON
    */
-  def getJson(region: ReferenceRegion): Map[String, String] = {
-    val seqRecord = sd(region.referenceName)
-    seqRecord match {
-      case Some(_) => {
-        val regionsOpt = bookkeep.getMissingRegions(region, files)
-        if (regionsOpt.isDefined) {
-          for (r <- regionsOpt.get) {
-            put(r)
-          }
-        }
-        stringify(intRDD.filterByInterval(region).toRDD.map(_._2))
-      } case None => {
-        throw new Exception("Not found in dictionary")
-      }
-    }
-  }
+  def getJson(region: ReferenceRegion): Map[String, String] = stringify(get(Some(region)))
 
   /**
    * Bins region by binning size
@@ -159,11 +142,9 @@ abstract class LazyMaterialization[T: ClassTag](name: String,
         val seqRecord = sd(region.referenceName)
         seqRecord match {
           case Some(_) => {
-            val regionsOpt = bookkeep.getMissingRegions(region, files)
-            if (regionsOpt.isDefined) {
-              for (r <- regionsOpt.get) {
-                put(r)
-              }
+            val regions = bookkeep.getMissingRegions(region, files)
+            for (r <- regions) {
+              put(r)
             }
             intRDD.filterByInterval(region).toRDD.map(_._2)
           }
