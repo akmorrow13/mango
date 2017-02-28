@@ -21,7 +21,7 @@ import org.bdgenomics.adam.models.ReferenceRegion
 import org.scalatest.FunSuite
 
 class BookkeepSuite extends FunSuite {
-  val prefetchSize = 100
+  val prefetchSize = 100L
   val sampleId = "id"
 
   val region1 = ReferenceRegion("chr1", 0, 100)

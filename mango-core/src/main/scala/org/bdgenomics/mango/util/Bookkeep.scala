@@ -17,7 +17,7 @@
  */
 package org.bdgenomics.mango.util
 
-import org.bdgenomics.adam.models.ReferenceRegion
+import org.bdgenomics.adam.models.{ SequenceDictionary, ReferenceRegion }
 import org.bdgenomics.utils.interval.array.{ IntervalArray, ConcreteIntervalArray }
 import org.bdgenomics.utils.misc.Logging
 import scala.collection.mutable
@@ -30,7 +30,7 @@ import scala.reflect.ClassTag
  * which stores the regions that have been loaded for each id (which is a string)
  * @param chunkSize Chunk size is the size at which data is loaded into memory
  */
-class Bookkeep(chunkSize: Int) extends Serializable with Logging {
+class Bookkeep(chunkSize: Long) extends Serializable with Logging {
 
   /*
    * The maximum width across all intervals in this bookkeeping structure.
@@ -48,6 +48,11 @@ class Bookkeep(chunkSize: Int) extends Serializable with Logging {
   var queue = new mutable.Queue[String]()
 
   def rememberValues(region: ReferenceRegion, k: String): Unit = rememberValues(region, List(k))
+
+  def rememberValues(sd: SequenceDictionary, ks: List[String]): Unit = {
+    sd.records.map(r => ReferenceRegion(r.name, 0, r.length))
+      .foreach(r => rememberValues(r, ks))
+  }
 
   /**
    * Drops all values from a given sequence record
