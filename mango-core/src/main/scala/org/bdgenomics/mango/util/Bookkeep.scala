@@ -81,7 +81,7 @@ class Bookkeep(chunkSize: Long) extends Serializable with Logging {
   }
 
   /**
-   * generates a list of reference regions that were not found in bookkeeping structure
+   * Generates a list of reference regions that were not found in bookkeeping structure.
    *
    * @param region that is divided into chunks and searched for in bookkeeping structure
    * @param ks in which region is searched over. these are sample IDs
@@ -107,10 +107,11 @@ class Bookkeep(chunkSize: Long) extends Serializable with Logging {
 object Bookkeep {
 
   /**
-   * generates a list of closely overlapping regions, counting for gaps in the list
+   * Merges together overlapping ReferenceRegions in a list of ReferenceRegions.
    *
    * @note For example, given a list of regions with ranges (0, 999), (1000, 1999) and (3000, 3999)
    * This function will consolidate adjacent regions and output (0, 1999), (3000, 3999)
+   *
    * @param regions list of regions to merge
    * @return Option of list of merged adjacent regions
    */
