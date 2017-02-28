@@ -154,17 +154,7 @@ abstract class LazyMaterialization[T: ClassTag](name: String,
         }
       }
       case None => {
-        // do we need to modify the chromosome prefix?
-        val hasChrPrefix = sd.records.head.name.startsWith("chr")
-        val data =
-          // get data for all samples
-          files.map(fp => {
-            val k = LazyMaterialization.filterKeyFromFile(fp)
-            load(fp, None).map(v => (k, v))
-          }).reduce(_ union _).map(r => {
-            val region = LazyMaterialization.modifyChrPrefix(getReferenceRegion(r._2), hasChrPrefix)
-            (region, (r._1, setContigName(r._2, region.referenceName)))
-          })
+        val data = loadAllFiles()
 
         // tag entire sequence dictionary
         bookkeep.rememberValues(sd, files)
@@ -190,18 +180,7 @@ abstract class LazyMaterialization[T: ClassTag](name: String,
     val seqRecord = sd(region.referenceName)
     if (seqRecord.isDefined) {
 
-      // do we need to modify the chromosome prefix?
-      val hasChrPrefix = seqRecord.get.name.startsWith("chr")
-
-      val data =
-        // get data for all samples
-        files.map(fp => {
-          val k = LazyMaterialization.filterKeyFromFile(fp)
-          load(fp, Some(region)).map(v => (k, v))
-        }).reduce(_ union _).map(r => {
-          val region = LazyMaterialization.modifyChrPrefix(getReferenceRegion(r._2), hasChrPrefix)
-          (region, (r._1, setContigName(r._2, region.referenceName)))
-        })
+      val data = loadAllFiles(Some(region))
 
       // tag regions as found, even if there is no data
       bookkeep.rememberValues(region, files)
@@ -219,6 +198,36 @@ abstract class LazyMaterialization[T: ClassTag](name: String,
       }
       intRDD.setName(name)
     }
+  }
+
+  /**
+   * Loads data from all files in materialization structure.
+   *
+   * @note: Modifies chromosome prefix depending on any discrepancies between the region requested and the
+   * sequence dictionary.
+   *
+   * @param regionOpt Optional region to fetch. If none, fetches all data
+   * @return RDD of data. Primary index is ReferenceRegion and secondary index is filename.
+   */
+  private def loadAllFiles(regionOpt: Option[ReferenceRegion] = None): RDD[(ReferenceRegion, (String, T))] = {
+    // do we need to modify the chromosome prefix?
+    val hasChrPrefix =
+      if (regionOpt.isDefined) {
+        val seqRecord = sd(regionOpt.get.referenceName)
+        seqRecord.get.name.startsWith("chr")
+      } else {
+        // if no region, grab first referenceName available
+        sd.records.head.name.startsWith("chr")
+      }
+
+    // get data for all files
+    files.map(fp => {
+      val k = LazyMaterialization.filterKeyFromFile(fp)
+      load(fp, regionOpt).map(v => (k, v))
+    }).reduce(_ union _).map(r => {
+      val region = LazyMaterialization.modifyChrPrefix(getReferenceRegion(r._2), hasChrPrefix)
+      (region, (r._1, setContigName(r._2, region.referenceName)))
+    })
   }
 
   /**
