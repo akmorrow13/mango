@@ -17,15 +17,15 @@
  */
 package org.bdgenomics.mango.models
 
-import org.apache.spark.{ HashPartitioner, Partitioner, SparkContext }
+import org.apache.spark.{ HashPartitioner, SparkContext }
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.StorageLevel
 import org.bdgenomics.adam.models.{ ReferenceRegion, SequenceDictionary }
-import org.bdgenomics.adam.rdd.GenomicRegionPartitioner
 import org.bdgenomics.mango.util.Bookkeep
 import org.bdgenomics.utils.interval.rdd.IntervalRDD
 import org.bdgenomics.utils.misc.Logging
 import scala.reflect.ClassTag
+import net.liftweb.json.Serialization._
 
 /**
  * Tracks regions of data already in memory and loads regions as needed.
@@ -33,11 +33,12 @@ import scala.reflect.ClassTag
  * @param name Name of Materialization structure. Used for Spark UI.
  * @param prefetch prefetch size to lazily grab data. Defaults to 1000000
  */
-abstract class LazyMaterialization[T: ClassTag](name: String,
-                                                @transient sc: SparkContext,
-                                                files: List[String],
-                                                sd: SequenceDictionary,
-                                                prefetch: Option[Long] = None) extends Serializable with Logging {
+abstract class LazyMaterialization[T: ClassTag, S: ClassTag](name: String,
+                                                             @transient sc: SparkContext,
+                                                             files: List[String],
+                                                             sd: SequenceDictionary,
+                                                             prefetch: Option[Long] = None) extends Serializable with Logging {
+  @transient implicit val formats = net.liftweb.json.DefaultFormats
 
   val prefetchSize = prefetch.getOrElse(sd.records.map(_.length).max)
 
@@ -68,20 +69,14 @@ abstract class LazyMaterialization[T: ClassTag](name: String,
    */
   def setContigName: (T, String) => T
 
+  def stringify(data: Array[S]): String = write(data)
+
   /**
    * Stringify T classtag to json
    * @param rdd RDD of elements keyed by String
    * @return Map of (key, json) for the ReferenceRegion specified
    */
-  def stringify(rdd: RDD[(String, T)]): Map[String, String]
-
-  /**
-   * Sets partitioner
-   * @return partitioner
-   */
-  def setPartitioner: Partitioner = {
-    GenomicRegionPartitioner(sc.defaultParallelism, sd)
-  }
+  def toJson(rdd: RDD[(String, T)]): Map[String, Array[S]]
 
   /**
    * gets dictionary
@@ -97,7 +92,7 @@ abstract class LazyMaterialization[T: ClassTag](name: String,
    * @param region: ReferenceRegion to fetch
    * @return Map of sampleIds and corresponding JSON
    */
-  def getJson(region: ReferenceRegion): Map[String, String] = stringify(get(Some(region)))
+  def getJson(region: ReferenceRegion): Map[String, Array[S]] = toJson(get(Some(region)))
 
   /**
    * Bins region by binning size
@@ -177,6 +172,7 @@ abstract class LazyMaterialization[T: ClassTag](name: String,
    */
   def put(region: ReferenceRegion) = {
     checkMemory
+
     val seqRecord = sd(region.referenceName)
     if (seqRecord.isDefined) {
 

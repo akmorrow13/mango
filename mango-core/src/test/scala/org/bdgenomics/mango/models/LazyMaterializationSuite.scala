@@ -76,8 +76,7 @@ class LazyMaterializationSuite extends MangoFunSuite {
  */
 class LazyDummy(@transient sc: SparkContext,
                 files: List[String],
-                sd: SequenceDictionary) extends LazyMaterialization[ReferenceRegion]("TestRDD", sc, files, sd, Some(100L)) with Serializable {
-  @transient implicit val formats = net.liftweb.json.DefaultFormats
+                sd: SequenceDictionary) extends LazyMaterialization[ReferenceRegion, ReferenceRegion]("TestRDD", sc, files, sd, Some(100L)) with Serializable {
 
   def getReferenceRegion = (r: ReferenceRegion) => r
 
@@ -90,13 +89,9 @@ class LazyDummy(@transient sc: SparkContext,
     ReferenceRegion(contig, r.start, r.end)
     r
   }
-
-  def stringify(data: RDD[(String, ReferenceRegion)]): Map[String, String] = {
-    data
-      .collect
-      .groupBy(_._1)
-      .map(r => (r._1, r._2.map(_._2)))
-      .mapValues(r => r.map(f => f.toString).mkString(","))
+  def toJson(data: RDD[(String, ReferenceRegion)]): Map[String, Array[ReferenceRegion]] = {
+    data.collect.groupBy(_._1).map(r => (r._1, r._2.map(_._2)))
   }
+
 }
 
