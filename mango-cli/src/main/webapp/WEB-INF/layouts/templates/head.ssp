@@ -4,7 +4,7 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="Overall Visualization for Mango">
-    <meta name="author" content="Eric Tu">
+    <meta name="author" content="Alyssa Morrow">
     <script src="resources/js/jquery.min.js"></script>
     <script src="resources/js/jquery-ui.min.js"></script>
     <script src="resources/js/d3.v3.min.js" charset="utf-8"></script>

@@ -57,7 +57,7 @@ class AnnotationMaterialization(@transient sc: SparkContext,
     } catch {
       case e: Exception =>
         log.warn("requested reference region not found in sequence dictionary")
-        ""
+        "" // return empty string
     }
   }
 }
