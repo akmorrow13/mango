@@ -1,4 +1,5 @@
 <%@ val dictionary:     String  %>
+<%@ val twoBitUrl:      String  %>
 <%@ val genes:          Option[String] %>
 <%@ val coverage:  Option[List[String]] %>
 <%@ val reads:     Option[List[(String, Option[String])]] %>
@@ -40,9 +41,8 @@
                 {
                 viz: pileup.viz.genome(),
                 isReference: true,
-                data: pileup.formats.reference({
-                url: '/reference',
-                contigList: contigList
+                data: pileup.formats.twoBit({
+                  url: '${twoBitUrl}'
                 }),
                 name: 'Reference'
                 },
