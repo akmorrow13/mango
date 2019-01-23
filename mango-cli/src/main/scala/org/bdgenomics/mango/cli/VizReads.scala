@@ -22,7 +22,7 @@ import java.io.FileNotFoundException
 import net.liftweb.json.Serialization.write
 import net.liftweb.json._
 import org.apache.spark.SparkContext
-import org.bdgenomics.adam.models.{ ReferencePosition, ReferenceRegion, SequenceDictionary }
+import org.bdgenomics.adam.models.{ SequenceRecord, ReferencePosition, ReferenceRegion, SequenceDictionary }
 import org.bdgenomics.mango.cli.util.Materializer
 import org.bdgenomics.mango.core.util.{ VizUtils, VizCacheIndicator }
 import org.bdgenomics.mango.filters._
@@ -77,7 +77,7 @@ object VizReads extends BDGCommandCompanion with Logging {
   var globalDict: SequenceDictionary = null
 
   // Structures storing data types. All but reference is optional
-  var annotationRDD: AnnotationMaterialization = null
+  var twoBitFile: String = null
   var materializer: Materializer = null
 
   var cacheSize: Int = 1000
@@ -332,6 +332,7 @@ class VizServlet extends ScalatraServlet {
 
     templateEngine.layout("/WEB-INF/layouts/browser.ssp",
       Map("dictionary" -> VizReads.formatDictionaryOpts(VizReads.globalDict),
+        "twoBitUrl" -> VizReads.twoBitFile,
         "genes" -> VizReads.genes,
         "reads" -> readsSamples,
         "coverage" -> coverageSamples,
@@ -342,17 +343,8 @@ class VizServlet extends ScalatraServlet {
         "end" -> session("referenceRegion").asInstanceOf[ReferenceRegion].end.toString))
   }
 
-  get("/reference/:ref") {
-    val viewRegion = ReferenceRegion(params("ref"), params("start").toLong, params("end").toLong)
-    session("referenceRegion") = viewRegion
-    val dictOpt = VizReads.globalDict(viewRegion.referenceName)
-    if (dictOpt.isDefined) {
-      Ok(write(VizReads.annotationRDD.getReferenceString(viewRegion)))
-    } else VizReads.errors.outOfBounds
-  }
-
   get("/sequenceDictionary") {
-    Ok(write(VizReads.annotationRDD.getSequenceDictionary.records))
+    Ok(write(VizReads.globalDict.records))
   }
 
   get("/reads/:key/:ref") {
@@ -582,10 +574,11 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
   override def run(sc: SparkContext): Unit = {
     VizReads.sc = sc
 
-    // initialize reference
-    initAnnotations(sc)
+    // initialize reference TODO clean up function
+    initAnnotations()
 
     VizReads.cacheSize = args.cacheSize
+    VizReads.twoBitFile = args.referencePath
 
     // set materializer
     VizReads.materializer = Materializer(Seq(initAlignments(sc, args.prefetchSize),
@@ -628,15 +621,26 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
   }
 
   /*
-   * Initialize required reference file
+   * Initialize sequence dictionary
+   *
+   *
    */
-  def initAnnotations(sc: SparkContext) = {
-    val referencePath = Option(args.referencePath).getOrElse({
-      throw new FileNotFoundException("reference file not provided")
-    })
+  def initAnnotations() = {
 
-    VizReads.annotationRDD = new AnnotationMaterialization(sc, referencePath)
-    VizReads.globalDict = VizReads.annotationRDD.getSequenceDictionary
+    import scala.io.Source
+
+    // download chrom sizes file, if it does not exist
+    // DODO this needs to be a parameter
+    val chromSizesFile: String = "/Users/akmorrow/ADAM/workfiles/hg19.chrom.sizes"
+
+    // parse records from file
+    val sequenceRecords =
+      Source.fromFile(chromSizesFile).getLines.map(line => {
+        SequenceRecord(line.split("\t")(0), line.split("\t")(1).toLong)
+      })
+
+    // load sequence records into globalDict
+    VizReads.globalDict = new SequenceDictionary(sequenceRecords.toVector)
   }
 
   /*
@@ -710,7 +714,7 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
    */
   def discoverFrequencies(sc: SparkContext): List[(ReferenceRegion, Double)] = {
 
-    val discovery = Discovery(VizReads.annotationRDD.getSequenceDictionary)
+    val discovery = Discovery(VizReads.globalDict)
     var regions: List[(ReferenceRegion, Double)] = List()
 
     // parse all materialization structures to calculate region frequencies
