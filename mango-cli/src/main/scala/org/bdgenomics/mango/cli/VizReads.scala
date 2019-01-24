@@ -24,6 +24,7 @@ import net.liftweb.json._
 import org.apache.spark.SparkContext
 import org.bdgenomics.adam.models.{ SequenceRecord, ReferencePosition, ReferenceRegion, SequenceDictionary }
 import org.bdgenomics.mango.cli.util.Materializer
+import org.bdgenomics.mango.converters.SearchReadsRequestGA4GH
 import org.bdgenomics.mango.core.util.{ VizUtils, VizCacheIndicator }
 import org.bdgenomics.mango.filters._
 import org.bdgenomics.mango.layout.{ PositionCount, BedRowJson, GenotypeJson }
@@ -39,6 +40,7 @@ import org.fusesource.scalate.TemplateEngine
 import org.ga4gh.GAReadAlignment
 import org.kohsuke.args4j.{ Argument, Option => Args4jOption }
 import org.scalatra._
+import scala.io.Source
 
 object VizTimers extends Metrics {
   //HTTP requests
@@ -130,6 +132,7 @@ object VizReads extends BDGCommandCompanion with Logging {
     var largeRegion = RequestEntityTooLarge("Region too large")
     var unprocessableFile = UnprocessableEntity("File type not supported")
     def notFound(name: String) = NotFound(s"$name not found")
+    def unknownError(str: String) = NotFound(str)
     def noContent(region: ReferenceRegion): ActionResult = {
       val msg = s"No content available at ${region.toString}"
       NoContent(Map.empty, msg)
@@ -194,6 +197,10 @@ object VizReads extends BDGCommandCompanion with Logging {
 class VizReadsArgs extends Args4jBase with ParquetArgs {
   @Argument(required = true, metaVar = "reference", usage = "The reference file to view, required", index = 0)
   var referencePath: String = null
+
+  // TODO remove this
+  @Argument(required = true, metaVar = "chromsizes", usage = "Tab delimited file of chromosome sizes, required", index = 1)
+  var chromSizesPath: String = null
 
   @Args4jOption(required = false, name = "-genes", usage = "Gene URL.")
   var genePath: String = null
@@ -266,6 +273,7 @@ class VizServlet extends ScalatraServlet {
         "regions" -> VizReads.formatClickableRegions(VizReads.prefetchedRegions)))
   }
 
+  // Used to set the viewRegion in the backend when a user clicks on the home page
   get("/setContig/:ref") {
     val viewRegion = ReferenceRegion(params("ref"), params("start").toLong, params("end").toLong)
     session("referenceRegion") = viewRegion
@@ -343,110 +351,72 @@ class VizServlet extends ScalatraServlet {
         "end" -> session("referenceRegion").asInstanceOf[ReferenceRegion].end.toString))
   }
 
+  // used in browser.ssp to set contig list for wheel
   get("/sequenceDictionary") {
     Ok(write(VizReads.globalDict.records))
   }
 
-  get("/reads/:key/:ref") {
-    VizTimers.ReadsRequest.time {
+  // post command for genome reads.
+  // Takes SearchReadsRequestGA4GH as parameters.
+  post("/reads/search") {
+    try {
+      VizTimers.ReadsRequest.time {
 
-      if (!VizReads.materializer.readsExist) {
-        VizReads.errors.notFound("ReadsMaterialization")
-      } else {
-        val viewRegion = ReferenceRegion(params("ref"), params("start").toLong,
-          VizUtils.getEnd(params("end").toLong, VizReads.globalDict(params("ref"))))
-        val key: String = params("key")
-        contentType = "json"
+        val searchReadsRequest: SearchReadsRequestGA4GH = net.liftweb.json.parse(request.body).extract[SearchReadsRequestGA4GH]
 
-        val dictOpt = VizReads.globalDict(viewRegion.referenceName)
-        if (dictOpt.isDefined) {
-          var results: Option[String] = None
-          // region was already collected, grab from cache
-          VizReads.readsWait.synchronized {
-            if (!VizReads.readsIndicator.region.contains(viewRegion)) {
-              val expanded = VizReads.expand(viewRegion)
-              VizReads.readsCache = VizReads.materializer.getReads().get.getJson(expanded)
-              VizReads.readsIndicator = VizCacheIndicator(expanded, 1)
-            }
-          }
-          // filter data overlapping viewRegion and stringify
-          val dataForKey = VizReads.readsCache.get(key)
-          val data = dataForKey.getOrElse(Array.empty).filter(r => {
-            ReferencePosition(r.getAlignment.getPosition.getReferenceName, r.getAlignment.getPosition.getPosition).overlaps(viewRegion)
-          })
-          results = Some(VizReads.materializer.getReads().get.stringify(data))
-          if (results.isDefined) {
-            Ok(results.get)
-          } else VizReads.errors.noContent(viewRegion)
-        } else VizReads.errors.outOfBounds
-      }
-    }
-  }
+        searchReadsRequest.readGroupIds.foreach(println)
 
-  get("/coverage/:key/:ref") {
-    val viewRegion = ReferenceRegion(params("ref"), params("start").toLong,
-      VizUtils.getEnd(params("end").toLong, VizReads.globalDict(params("ref"))))
-    val key: String = params("key")
-    val binning: Int =
-      try
-        params("binning").toInt
-      catch {
-        case e: Exception => 1
-      }
-    getCoverage(viewRegion, key, binning)
-  }
-
-  get("/reads/coverage/:key/:ref") {
-    VizTimers.ReadsRequest.time {
-
-      if (!VizReads.materializer.readsExist) {
-        VizReads.errors.notFound("ReadsMaterialization")
-      } else {
-        val viewRegion = ReferenceRegion(params("ref"), params("start").toLong,
-          VizUtils.getEnd(params("end").toLong, VizReads.globalDict(params("ref"))))
-        val key: String = params("key")
-        contentType = "json"
-
-        // get all coverage files that have been loaded
-        val coverageFiles =
-          if (VizReads.materializer.coveragesExist) {
-            Some(VizReads.materializer.getCoverage().get.getFiles.map(f => LazyMaterialization.filterKeyFromFile(f)))
-          } else None
-
-        // check if there is a precomputed coverage file for this reads file
-        if (coverageFiles.isDefined && coverageFiles.get.contains(key)) {
-          val binning: Int =
-            try
-              params("binning").toInt
-            catch {
-              case e: Exception => 1
-            }
-
-          getCoverage(viewRegion, key, binning)
+        if (!VizReads.materializer.readsExist) {
+          VizReads.errors.notFound("ReadsMaterialization")
         } else {
-          // no precomputed coverage
+          val viewRegion = ReferenceRegion(searchReadsRequest.referenceId, searchReadsRequest.start.toLong,
+            VizUtils.getEnd(searchReadsRequest.end.toLong, VizReads.globalDict(searchReadsRequest.referenceId)))
+          val key: String = searchReadsRequest.readGroupIds(0) // there will never be more than 1 readGroup for the browser
+          contentType = "json"
+
           val dictOpt = VizReads.globalDict(viewRegion.referenceName)
           if (dictOpt.isDefined) {
             var results: Option[String] = None
             // region was already collected, grab from cache
-            VizReads.readsCoverageWait.synchronized {
-              if (!VizReads.readsCoverageIndicator.region.contains(viewRegion)) {
+            VizReads.readsWait.synchronized {
+              if (!VizReads.readsIndicator.region.contains(viewRegion)) {
                 val expanded = VizReads.expand(viewRegion)
-                VizReads.readsCoverageCache = VizReads.materializer.getReads().get.getCoverage(expanded)
+                VizReads.readsCache = VizReads.materializer.getReads().get.getJson(expanded)
                 VizReads.readsIndicator = VizCacheIndicator(expanded, 1)
               }
             }
             // filter data overlapping viewRegion and stringify
-            val data = VizReads.readsCoverageCache.get(key).getOrElse(Array.empty).filter(_.overlaps(viewRegion))
-            results = Some(write(data))
+            val dataForKey = VizReads.readsCache.get(key)
+            val data = dataForKey.getOrElse(Array.empty).filter(r => {
+              ReferencePosition(r.getAlignment.getPosition.getReferenceName, r.getAlignment.getPosition.getPosition).overlaps(viewRegion)
+            })
+            results = Some(VizReads.materializer.getReads().get.stringify(data))
             if (results.isDefined) {
               Ok(results.get)
             } else VizReads.errors.noContent(viewRegion)
           } else VizReads.errors.outOfBounds
         }
       }
+    } catch { // catch all for errors
+      case e: Exception => {
+        e.printStackTrace()
+        VizReads.errors.unknownError(e.getStackTraceString)
+      }
     }
   }
+
+  //  get("/coverage/:key/:ref") {
+  //    val viewRegion = ReferenceRegion(params("ref"), params("start").toLong,
+  //      VizUtils.getEnd(params("end").toLong, VizReads.globalDict(params("ref"))))
+  //    val key: String = params("key")
+  //    val binning: Int =
+  //      try
+  //        params("binning").toInt
+  //      catch {
+  //        case e: Exception => 1
+  //      }
+  //    getCoverage(viewRegion, key, binning)
+  //  }
 
   get("/variants/:key/:ref") {
     VizTimers.VarRequest.time {
@@ -575,7 +545,7 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
     VizReads.sc = sc
 
     // initialize reference TODO clean up function
-    initAnnotations()
+    assignChromosomeSizes(args.chromSizesPath)
 
     VizReads.cacheSize = args.cacheSize
     VizReads.twoBitFile = args.referencePath
@@ -621,17 +591,10 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
   }
 
   /*
-   * Initialize sequence dictionary
-   *
-   *
+   * Initialize sequence dictionary from chromosome files
+   * @param chromSizesFiles String of chrom sizes location
    */
-  def initAnnotations() = {
-
-    import scala.io.Source
-
-    // download chrom sizes file, if it does not exist
-    // DODO this needs to be a parameter
-    val chromSizesFile: String = "/Users/akmorrow/ADAM/workfiles/hg19.chrom.sizes"
+  def assignChromosomeSizes(chromSizesFile: String) = {
 
     // parse records from file
     val sequenceRecords =
