@@ -110,6 +110,9 @@ class CoverageMaterialization(@transient sc: SparkContext,
       .mapValues(r => r.map(f => PositionCount(f.contigName, f.start, f.end, f.count.toInt)))
   }
 
+  def stringify = (data: Array[PositionCount]) => {
+    write(data).getBytes()
+  }
 }
 
 object CoverageMaterialization {

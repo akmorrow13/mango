@@ -141,7 +141,7 @@ abstract class LazyMaterialization[T: ClassTag, S: ClassTag](name: String,
    */
   def setContigName: (T, String) => T
 
-  def stringify(data: Array[S]): String = write(data)
+  def stringify: (Array[S]) => Array[Byte]
 
   /**
    * Stringify T classtag to json
