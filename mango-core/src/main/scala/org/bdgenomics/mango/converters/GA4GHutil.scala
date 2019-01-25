@@ -163,11 +163,11 @@ object GA4GHutil {
         gaReads.groupBy(r => r.getReadGroupId).map(sampleReads =>
           (sampleReads._1,
             ga4gh.ReadServiceOuterClass.SearchReadsResponse.newBuilder()
-            .addAllAlignments(sampleReads._2.toList.asJava).build()))
+              .addAllAlignments(sampleReads._2.toList.asJava).build()))
       } else {
         Map(("1",
           ga4gh.ReadServiceOuterClass.SearchReadsResponse.newBuilder()
-          .addAllAlignments(gaReads.toList.asJava).build()))
+            .addAllAlignments(gaReads.toList.asJava).build()))
       }
 
     // convert results to json strings for each readGroupName

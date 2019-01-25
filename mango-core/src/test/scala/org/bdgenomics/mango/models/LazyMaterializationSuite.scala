@@ -86,6 +86,11 @@ class LazyDummy(@transient sc: SparkContext,
       .map(r => ReferenceRegion(region.referenceName, r, r + 1)))
   }
 
+  def stringify = (data: Array[ReferenceRegion]) => {
+    // empty
+    new Array[Byte](10)
+  }
+
   def setContigName = (r: ReferenceRegion, contig: String) => {
     ReferenceRegion(contig, r.start, r.end)
     r
