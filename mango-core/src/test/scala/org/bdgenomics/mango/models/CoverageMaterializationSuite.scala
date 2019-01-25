@@ -50,7 +50,8 @@ class CoverageMaterializationSuite extends MangoFunSuite {
   sparkTest("can parse coverage json") {
     val data = new CoverageMaterialization(sc, files, dict)
     val region = new ReferenceRegion("chrM", 0L, 20L)
-    val freq = data.stringify(data.getCoverage(region).get(key).get)
+    val bytes = data.stringify(data.getCoverage(region).get(key).get)
+    val freq = (bytes.map(_.toChar)).mkString
     val coverage = parse(freq).extract[Array[PositionCount]]
     assert(coverage.length == region.length())
   }
