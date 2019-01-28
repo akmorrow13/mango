@@ -20,6 +20,8 @@ package org.bdgenomics.mango.models
 import java.io.{ PrintWriter, StringWriter }
 
 import htsjdk.samtools.ValidationStringency
+import net.liftweb.json.Extraction._
+import net.liftweb.json._
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.filter2.dsl.Dsl._
 import org.apache.parquet.filter2.predicate.FilterPredicate
@@ -127,7 +129,6 @@ class AlignmentRecordMaterialization(@transient sc: SparkContext,
       AlignmentTimers.getAlignmentData.time {
         data.filter(r => Option(r._2.mapq).getOrElse(1).asInstanceOf[Int] > 0) // filter mapq 0 reads out
           .collect.groupBy(_._1).mapValues(r => {
-            //            r.map(a => GA4GHConverter.toReadAlignment(a._2, stringency = ValidationStringency.SILENT))
             r.map(a => alignmentRecordToGAReadAlignment(a._2))
           })
       }
@@ -142,20 +143,9 @@ class AlignmentRecordMaterialization(@transient sc: SparkContext,
   def stringify = (data: Array[ReadAlignment]) => {
 
     val message = ga4gh.ReadServiceOuterClass.SearchReadsResponse
-      .newBuilder().addAllAlignments(data.toList)
-      .build()
+      .newBuilder().addAllAlignments(data.toList).build()
 
-    // get message size
-    val pblen: Int = message.getSerializedSize
-
-    // make output buffer to write to
-    val buf = new Array[Byte](pblen)
-    val out = com.google.protobuf.CodedOutputStream.newInstance(buf)
-
-    // write message to buffer
-    message.writeTo(out)
-
-    buf
+    com.google.protobuf.util.JsonFormat.printer().includingDefaultValueFields().print(message)
   }
 }
 

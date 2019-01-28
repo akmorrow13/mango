@@ -111,7 +111,7 @@ class CoverageMaterialization(@transient sc: SparkContext,
   }
 
   def stringify = (data: Array[PositionCount]) => {
-    write(data).getBytes()
+    write(data)
   }
 }
 

@@ -21,6 +21,7 @@ package org.bdgenomics.mango.models
 import ga4gh.SequenceAnnotations
 import net.liftweb.json._
 import org.bdgenomics.adam.models.{ ReferenceRegion, SequenceDictionary, SequenceRecord }
+import org.bdgenomics.mango.converters.GA4GHutil
 import org.bdgenomics.mango.util.MangoFunSuite
 import scala.collection.JavaConversions._
 import scala.collection.JavaConverters._
@@ -51,17 +52,21 @@ class FeatureMaterializationSuite extends MangoFunSuite {
   sparkTest("can fetch multiple files") {
     val data = new FeatureMaterialization(sc, List(bedFile, bedFile2), dict)
     val region = new ReferenceRegion("chrM", 1000L, 1200L)
-    val json = data.getJson(region)
+    val map = data.getJson(region)
 
-    assert(json.contains(key) && json.contains(key2))
+    assert(map.contains(key) && map.contains(key2))
 
-    val buf = data.stringify(json.get(key).get)
+    val results = map.get(key).get
 
-    val keyData: List[SequenceAnnotations.Feature] = ga4gh.SequenceAnnotationServiceOuterClass.SearchFeaturesResponse.parseFrom(buf)
-      .getFeaturesList.asScala.toList.sortBy(_.getStart)
+    val buf = data.stringify(results)
+
+    val keyData = GA4GHutil.stringToSearchFeaturesResponse(buf).getFeaturesList
+
+    assert(keyData.size() == results.length)
 
     assert(keyData.length == 2)
     assert(keyData.head.getStart == 1107)
+
   }
 
   sparkTest("Should handle chromosomes with different prefixes") {

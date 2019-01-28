@@ -21,6 +21,7 @@ package org.bdgenomics.mango.models
 import ga4gh.Reads
 import org.bdgenomics.adam.models.{ ReferenceRegion, SequenceDictionary, SequenceRecord }
 import org.bdgenomics.adam.rdd.ADAMContext._
+import org.bdgenomics.mango.converters.GA4GHutil
 import org.bdgenomics.mango.layout.PositionCount
 import org.bdgenomics.mango.util.MangoFunSuite
 import net.liftweb.json._
@@ -62,10 +63,8 @@ class AlignmentRecordMaterializationSuite extends MangoFunSuite {
     val region = new ReferenceRegion("chrM", 0L, 900L)
     val results: Array[ReadAlignment] = data.getJson(region).get(key).get
 
-    val bytes = data.stringify(results)
-
-    val keyData = ga4gh.ReadServiceOuterClass.SearchReadsResponse.parseFrom(bytes)
-      .getAlignmentsList
+    val buf = data.stringify(results)
+    val keyData = GA4GHutil.stringToSearchReadsResponse(buf).getAlignmentsList
 
     assert(keyData.size() == results.length)
   }
