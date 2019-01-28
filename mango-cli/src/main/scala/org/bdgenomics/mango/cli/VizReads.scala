@@ -373,10 +373,11 @@ class VizServlet extends ScalatraServlet {
 
           val dictOpt = VizReads.globalDict(viewRegion.referenceName)
           if (dictOpt.isDefined) {
-            var results: Option[Array[Byte]] = None
+            var results: Option[String] = None
             // region was already collected, grab from cache
             VizReads.readsWait.synchronized {
               if (!VizReads.readsIndicator.region.contains(viewRegion)) {
+                println(viewRegion, " not in cache")
                 val expanded = VizReads.expand(viewRegion)
                 VizReads.readsCache = VizReads.materializer.getReads().get.getJson(expanded)
                 VizReads.readsIndicator = VizCacheIndicator(expanded, 1)
@@ -387,7 +388,8 @@ class VizServlet extends ScalatraServlet {
             val data = dataForKey.getOrElse(Array.empty).filter(r => {
               ReferencePosition(r.getAlignment.getPosition.getReferenceName, r.getAlignment.getPosition.getPosition).overlaps(viewRegion)
             })
-            results = Some(VizReads.materializer.getReads().get.stringify(data))
+            val x =
+              results = Some(VizReads.materializer.getReads().get.stringify(data))
             if (results.isDefined) {
               Ok(results.get)
             } else VizReads.errors.noContent(viewRegion)
@@ -435,7 +437,7 @@ class VizServlet extends ScalatraServlet {
           // if region is in bounds of reference, return data
           val dictOpt = VizReads.globalDict(viewRegion.referenceName)
           if (dictOpt.isDefined) {
-            var results: Option[Array[Byte]] = None
+            var results: Option[String] = None
             val binning: Int =
               try {
                 params("binning").toInt // TODO
@@ -489,7 +491,7 @@ class VizServlet extends ScalatraServlet {
           // if region is in bounds of reference, return data
           val dictOpt = VizReads.globalDict(viewRegion.referenceName)
           if (dictOpt.isDefined) {
-            var results: Option[Array[Byte]] = None
+            var results: Option[String] = None
             val binning: Int =
               try {
                 params("binning").toInt // TODO

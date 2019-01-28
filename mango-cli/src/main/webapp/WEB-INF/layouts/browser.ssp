@@ -68,15 +68,16 @@
             // generate and add variants, if defined
             #if (variants.isDefined)
                 #for (s <- variants.get)
-                    var data = pileup.formats.variants({
-                    url: '/variants/${s._1}',
-                    samples: '${s._2}'.split(",")
-                    })
+                    var data = pileup.formats.GAVariant({
+                        endpoint: '',
+                        variantSetId: '${s._1}',
+                        callSetIds: '[]'
+                    });
                     tracks.push({
-                    viz: pileup.viz.variants(),
-                    data: data,
-                    name: '${s._1}'
-                    })
+                        viz: pileup.viz.variants(),
+                        data: data,
+                        name: '${s._1}'
+                    });
                     #if (s._2.length > 0)
                         tracks.push({
                         viz: pileup.viz.genotypes(),
@@ -105,8 +106,9 @@
                 #for (s <- features.get)
                     tracks.push({
                     viz: pileup.viz.features(),
-                    data: pileup.formats.features({
-                    url: '/features/${s}'
+                    data: pileup.formats.GAFeature({
+                        endpoint: ''
+                        featureSetId: '${s}'
                     }),
                     name: '${s}'
                     });

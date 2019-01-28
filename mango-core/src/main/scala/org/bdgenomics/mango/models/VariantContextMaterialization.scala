@@ -115,17 +115,7 @@ class VariantContextMaterialization(@transient sc: SparkContext,
       .SearchVariantsResponse.newBuilder().addAllVariants(data.toList)
       .build()
 
-    // get message size
-    val pblen: Int = message.getSerializedSize
-
-    // make output buffer to write to
-    val buf = new Array[Byte](pblen)
-    val out = com.google.protobuf.CodedOutputStream.newInstance(buf)
-
-    // write message to buffer
-    message.writeTo(out)
-
-    buf
+    com.google.protobuf.util.JsonFormat.printer().includingDefaultValueFields().print(message)
   }
 
   /**

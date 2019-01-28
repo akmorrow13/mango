@@ -85,8 +85,7 @@ class FeatureMaterialization(@transient sc: SparkContext,
     data
       .collect.groupBy(_._1).mapValues(r =>
         {
-          r.map(a => ga4gh.SequenceAnnotations.Feature
-            .newBuilder(GA4GHutil.featureConverter.convert(a._2, ConversionStringency.LENIENT, LoggerFactory.getLogger("GA4GHutil"))).build())
+          r.map(a => GA4GHutil.featureToGAFeature(a._2))
         })
   }
 
@@ -102,17 +101,7 @@ class FeatureMaterialization(@transient sc: SparkContext,
       .SearchFeaturesResponse.newBuilder().addAllFeatures(data.toList)
       .build()
 
-    // get message size
-    val pblen: Int = message.getSerializedSize
-
-    // make output buffer to write to
-    val buf = new Array[Byte](pblen)
-    val out = com.google.protobuf.CodedOutputStream.newInstance(buf)
-
-    // write message to buffer
-    message.writeTo(out)
-
-    buf
+    com.google.protobuf.util.JsonFormat.printer().includingDefaultValueFields().print(message)
   }
 
 }
