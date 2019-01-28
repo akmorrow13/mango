@@ -88,7 +88,7 @@ class LazyDummy(@transient sc: SparkContext,
 
   def stringify = (data: Array[ReferenceRegion]) => {
     // empty
-    new Array[Byte](10)
+    ""
   }
 
   def setContigName = (r: ReferenceRegion, contig: String) => {

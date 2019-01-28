@@ -108,4 +108,3 @@ class GA4GHutilSuite extends MangoFunSuite {
   }
 
 }
-

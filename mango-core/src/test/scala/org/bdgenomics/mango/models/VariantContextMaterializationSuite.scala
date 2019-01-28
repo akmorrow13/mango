@@ -22,6 +22,7 @@ import net.liftweb.json._
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.models.{ VariantContext, ReferenceRegion, SequenceDictionary, SequenceRecord }
 import org.bdgenomics.formats.avro.Variant
+import org.bdgenomics.mango.converters.GA4GHutil
 import org.bdgenomics.mango.util.MangoFunSuite
 
 class VariantContextMaterializationSuite extends MangoFunSuite {
@@ -59,10 +60,10 @@ class VariantContextMaterializationSuite extends MangoFunSuite {
     val data = new VariantContextMaterialization(sc, List(vcfFile1), sd)
     val buf = data.stringify(data.getJson(region).map(_._2).flatten.toArray)
 
-    val vAndg = ga4gh.VariantServiceOuterClass.SearchVariantsResponse.parseFrom(buf).getVariantsList
+    val vAndg = GA4GHutil.stringToVariantServiceResponse(buf).getVariantsList
+
     assert(vAndg.size() == 7)
     assert(vAndg.get(0).getCallsCount == 3)
-
   }
 
   sparkTest("Can read Partitioned Parquet Genotypes") {

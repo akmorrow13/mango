@@ -17,7 +17,7 @@
  */
 package org.bdgenomics.mango.cli
 
-import org.bdgenomics.mango.converters.{ SearchFeaturesRequestGA4GH, SearchVariantsRequestGA4GH, SearchReadsRequestGA4GH }
+import org.bdgenomics.mango.converters.{ GA4GHutil, SearchFeaturesRequestGA4GH, SearchVariantsRequestGA4GH, SearchReadsRequestGA4GH }
 import org.bdgenomics.mango.models.LazyMaterialization
 import org.bdgenomics.mango.util.MangoFunSuite
 import org.ga4gh.GASearchReadsResponse
@@ -89,7 +89,7 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
     post("/reads/search", body, requestHeader) {
       assert(status == Ok("").status.code)
 
-      val parsedData = ga4gh.ReadServiceOuterClass.SearchReadsResponse.parseFrom(response.getContentBytes())
+      val parsedData = GA4GHutil.stringToSearchReadsResponse(response.getContent())
         .getAlignmentsList
 
       assert(parsedData.size == 9)
@@ -160,7 +160,7 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
     post("/variants/search", body, requestHeader) {
       assert(status == Ok("").status.code)
 
-      val json = ga4gh.VariantServiceOuterClass.SearchVariantsResponse.parseFrom(response.getContentBytes())
+      val json = GA4GHutil.stringToVariantServiceResponse(response.getContent())
         .getVariantsList
 
       assert(json.size == 7)
@@ -192,7 +192,8 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
 
     post("/variants/search", body, requestHeader) {
       assert(status == Ok("").status.code)
-      val json = ga4gh.VariantServiceOuterClass.SearchVariantsResponse.parseFrom(response.getContentBytes())
+
+      val json = GA4GHutil.stringToVariantServiceResponse(response.getContent())
         .getVariantsList
 
       assert(json.size == 0)
@@ -222,7 +223,7 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
     post("/features/search", body, requestHeader) {
       assert(status == Ok("").status.code)
 
-      val json = ga4gh.SequenceAnnotationServiceOuterClass.SearchFeaturesResponse.parseFrom(response.getContentBytes())
+      val json = GA4GHutil.stringToSearchFeaturesResponse(response.getContent())
         .getFeaturesList
 
       assert(json.size == 2)
@@ -236,7 +237,7 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
 
     post("/features/search", body, requestHeader) {
       assert(status == Ok("").status.code)
-      val json = ga4gh.SequenceAnnotationServiceOuterClass.SearchFeaturesResponse.parseFrom(response.getContentBytes())
+      val json = GA4GHutil.stringToSearchFeaturesResponse(response.getContent())
         .getFeaturesList
 
       assert(json.size == 0)
@@ -338,7 +339,7 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
     post("/variants/search", variantsBody1, requestHeader) {
       assert(status == Ok("").status.code)
 
-      val json = ga4gh.VariantServiceOuterClass.SearchVariantsResponse.parseFrom(response.getContentBytes())
+      val json = GA4GHutil.stringToVariantServiceResponse(response.getContent())
         .getVariantsList
 
       assert(json.size == 0)
@@ -356,7 +357,7 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
     post("/variants/search", variantsBody2, requestHeader) {
       assert(status == Ok("").status.code)
 
-      val json = ga4gh.VariantServiceOuterClass.SearchVariantsResponse.parseFrom(response.getContentBytes())
+      val json = GA4GHutil.stringToVariantServiceResponse(response.getContent())
         .getVariantsList
 
       assert(json.size == 289)
