@@ -32,7 +32,7 @@ class GA4GHutilSuite extends MangoFunSuite {
 
     val collected = rrdd.rdd.collect()
 
-    val json = GA4GHutil.alignmentRecordRDDtoJSON(rrdd)
+    val json = GA4GHutil.alignmentRecordRDDtoJSON(rrdd).get("1")
 
     val response = GA4GHutil.stringToSearchReadsResponse(json)
 

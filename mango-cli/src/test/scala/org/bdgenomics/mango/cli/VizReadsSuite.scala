@@ -20,7 +20,6 @@ package org.bdgenomics.mango.cli
 import org.bdgenomics.mango.converters.{ GA4GHutil, SearchFeaturesRequestGA4GH, SearchVariantsRequestGA4GH, SearchReadsRequestGA4GH }
 import org.bdgenomics.mango.models.LazyMaterialization
 import org.bdgenomics.mango.util.MangoFunSuite
-import org.ga4gh.GASearchReadsResponse
 import org.scalatra.{ NotFound, Ok }
 import org.scalatra.test.scalatest.ScalatraSuite
 import net.liftweb.json._
@@ -30,8 +29,6 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
   implicit val formats = DefaultFormats
 
   addServlet(classOf[VizServlet], "/*")
-
-  val emptyGASearchResponse = GASearchReadsResponse.newBuilder().build().toString
 
   val bamFile = resourcePath("mouse_chrM.bam")
   val referenceFile = resourcePath("mm10_chrM.fa")
