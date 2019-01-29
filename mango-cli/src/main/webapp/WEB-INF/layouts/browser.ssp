@@ -71,7 +71,7 @@
                     var data = pileup.formats.GAVariant({
                         endpoint: '',
                         variantSetId: '${s._1}',
-                        callSetIds: '[]'
+                        callSetIds: []
                     });
                     tracks.push({
                         viz: pileup.viz.variants(),
@@ -107,7 +107,7 @@
                     tracks.push({
                     viz: pileup.viz.features(),
                     data: pileup.formats.GAFeature({
-                        endpoint: ''
+                        endpoint: '',
                         featureSetId: '${s}'
                     }),
                     name: '${s}'
