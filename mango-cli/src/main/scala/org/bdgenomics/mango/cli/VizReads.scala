@@ -377,7 +377,6 @@ class VizServlet extends ScalatraServlet {
             // region was already collected, grab from cache
             VizReads.readsWait.synchronized {
               if (!VizReads.readsIndicator.region.contains(viewRegion)) {
-                println(viewRegion, " not in cache")
                 val expanded = VizReads.expand(viewRegion)
                 VizReads.readsCache = VizReads.materializer.getReads().get.getJson(expanded)
                 VizReads.readsIndicator = VizCacheIndicator(expanded, 1)
