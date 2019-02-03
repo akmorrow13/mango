@@ -1,9 +1,10 @@
 <%@ val dictionary:     String  %>
 <%@ val twoBitUrl:      String  %>
+<%@ val showGenotypes:      Boolean  %>
 <%@ val genes:          Option[String] %>
 <%@ val coverage:  Option[List[String]] %>
 <%@ val reads:     Option[List[(String, Option[String])]] %>
-<%@ val variants:  Option[List[(String, String)]] %>
+<%@ val variants:  Option[List[String] %>
 <%@ val features:  Option[List[String]] %>
 <%@ val contig: String %>
 <%@ val start: String %>
@@ -69,16 +70,14 @@
             #if (variants.isDefined)
                 #for (s <- variants.get)
                     var data = pileup.formats.GAVariant({
-                        endpoint: '',
-                        variantSetId: '${s._1}',
-                        callSetIds: []
+                         
                     });
                     tracks.push({
                         viz: pileup.viz.variants(),
                         data: data,
-                        name: '${s._1}'
+                        name: '${s}'
                     });
-                    #if (s._2.length > 0)
+                    #if (${showGenotypes} == True)
                         tracks.push({
                         viz: pileup.viz.genotypes(),
                         data: data,
