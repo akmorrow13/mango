@@ -324,9 +324,7 @@ class VizServlet extends ScalatraServlet {
     }
 
     val variantSamples = try {
-      if (VizReads.showGenotypes)
-        Some(VizReads.materializer.getVariantContext().get.getGenotypeSamples().map(r => (LazyMaterialization.filterKeyFromFile(r._1), r._2.mkString(","))))
-      else Some(VizReads.materializer.getVariantContext().get.getFiles.map(r => (LazyMaterialization.filterKeyFromFile(r), "")))
+      Some(VizReads.materializer.getVariantContext().get.getFiles.map(r => (LazyMaterialization.filterKeyFromFile(r), "")))
     } catch {
       case e: Exception => None
     }
@@ -420,6 +418,8 @@ class VizServlet extends ScalatraServlet {
   post("/variants/search") {
     try {
       VizTimers.VarRequest.time {
+
+        println(request.body)
 
         val searchVariantsRequest: SearchVariantsRequestGA4GH =
           net.liftweb.json.parse(request.body).extract[SearchVariantsRequestGA4GH]
