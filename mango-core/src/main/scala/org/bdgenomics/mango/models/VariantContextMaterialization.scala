@@ -31,7 +31,7 @@ import org.bdgenomics.adam.projections.{ Projection, VariantField }
 import org.bdgenomics.adam.rdd.ADAMContext._
 import org.bdgenomics.adam.rdd.variant.{ VariantRDD, GenotypeRDD, VariantContextRDD }
 import org.bdgenomics.convert.ConversionStringency
-import org.bdgenomics.formats.avro.{ Variant, GenotypeAllele }
+import org.bdgenomics.formats.avro.{ Sample, Variant, GenotypeAllele }
 import org.bdgenomics.mango.converters.GA4GHutil
 import org.bdgenomics.mango.core.util.ResourceUtils
 import org.slf4j.LoggerFactory
@@ -58,6 +58,10 @@ class VariantContextMaterialization(@transient sc: SparkContext,
 
   // placeholder used for ref/alt positions to display in browser
   val variantPlaceholder = "N"
+
+  // TODO this may take a while
+  // Map of filenames to Samples for that file
+  @transient val samples: Map[String, Seq[Sample]] = getGenotypeSamples()
 
   /**
    * Extracts ReferenceRegion from Variant
@@ -89,7 +93,6 @@ class VariantContextMaterialization(@transient sc: SparkContext,
     VariantContextMaterialization.load(sc, file, regions).rdd
 
   /**
-   * TODO what about genotypes?
    * Stringifies data from variants to lists of variants over the requested regions
    *
    * @param data RDD of  filtered (key, GenotypeJson)
@@ -123,8 +126,8 @@ class VariantContextMaterialization(@transient sc: SparkContext,
    *
    * @return List of filenames their corresponding Seq of SampleIds.
    */
-  def getGenotypeSamples(): List[(String, List[String])] = {
-    files.map(fp => (fp, VariantContextMaterialization.load(sc, fp, None).samples.map(_.getSampleId).toList))
+  def getGenotypeSamples(): Map[String, List[Sample]] = {
+    files.map(fp => (fp, VariantContextMaterialization.load(sc, fp, None).samples.toList)).toMap
   }
 }
 
@@ -189,7 +192,7 @@ object VariantContextMaterialization {
    */
   def loadAdam(sc: SparkContext, fp: String, regions: Option[Iterable[ReferenceRegion]]): VariantContextRDD = {
 
-    val variantContext = if (sc.isPartitioned(fp)) {
+    val variantContext = if (sc.isPartitioned(fp) && regions.isDefined) {
 
       // finalRegions includes contigs both with and without "chr" prefix
       val finalRegions: Iterable[ReferenceRegion] = regions.get ++ regions.get
@@ -229,18 +232,4 @@ object VariantContextMaterialization {
     }
     variantContext
   }
-
-  //  /**
-  //   * Converts VariantContextRDD into RDD of Variants and Genotype SampleIds that can be directly converted to json
-  //   *
-  //   * @param v VariantContextRDD to Convert
-  //   * @return Converted json RDD
-  //   */
-  //  private def toGenotypeJsonRDD(v: VariantContextRDD): RDD[GenotypeJson] = {
-  //    v.rdd.map(r => {
-  //      // filter out genotypes with only some alt alleles
-  //      val genotypes = r.genotypes.filter(_.getAlleles.toArray.filter(_ != GenotypeAllele.REF).length > 0)
-  //      new GenotypeJson(r.variant.variant, genotypes.map(_.getSampleId).toArray)
-  //    })
-  //  }
 }

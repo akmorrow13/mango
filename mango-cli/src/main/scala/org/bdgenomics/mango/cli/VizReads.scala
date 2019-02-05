@@ -114,7 +114,6 @@ object VizReads extends BDGCommandCompanion with Logging {
   object variantsWait
   var variantsCache: Map[String, Array[ga4gh.Variants.Variant]] = Map.empty[String, Array[ga4gh.Variants.Variant]]
   var variantsIndicator = VizCacheIndicator(region, 1)
-  var showGenotypes: Boolean = false
 
   // features cache
   object featuresWait
@@ -213,9 +212,6 @@ class VizReadsArgs extends Args4jBase with ParquetArgs {
   @Args4jOption(required = false, name = "-variants", usage = "A list of variants files to view, separated by commas (,). " +
     "Vcf files require a corresponding tbi index.")
   var variantsPaths: String = null
-
-  @Args4jOption(required = false, name = "-show_genotypes", usage = "Shows genotypes if available in variant files.")
-  var showGenotypes: Boolean = false
 
   @Args4jOption(required = false, name = "-repartition", usage = "Repartitions data to default number of partitions.")
   var repartition: Boolean = false
@@ -323,8 +319,8 @@ class VizServlet extends ScalatraServlet {
       case e: Exception => None
     }
 
-    val variantSamples = try {
-      Some(VizReads.materializer.getVariantContext().get.getFiles.map(r => (LazyMaterialization.filterKeyFromFile(r), "")))
+    val variantSamples: Option[Map[String, String]] = try {
+      Some(VizReads.materializer.getVariantContext().get.samples.map(r => (LazyMaterialization.filterKeyFromFile(r._1), r._2.map(_.getSampleId).mkString(","))))
     } catch {
       case e: Exception => None
     }
@@ -419,16 +415,14 @@ class VizServlet extends ScalatraServlet {
     try {
       VizTimers.VarRequest.time {
 
-        println(request.body)
-
         val searchVariantsRequest: SearchVariantsRequestGA4GH =
           net.liftweb.json.parse(request.body).extract[SearchVariantsRequestGA4GH]
 
         if (!VizReads.materializer.variantContextExist)
           VizReads.errors.notFound("VariantContextMaterialization")
         else {
-          val viewRegion = ReferenceRegion(searchVariantsRequest.referenceName, searchVariantsRequest.start.toLong,
-            VizUtils.getEnd(searchVariantsRequest.end.toLong, VizReads.globalDict(searchVariantsRequest.referenceName)))
+          val viewRegion = ReferenceRegion(searchVariantsRequest.referenceName, searchVariantsRequest.start,
+            VizUtils.getEnd(searchVariantsRequest.end, VizReads.globalDict(searchVariantsRequest.referenceName)))
 
           val key: String = searchVariantsRequest.variantSetId
           contentType = "json"
@@ -662,8 +656,6 @@ class VizReads(protected val args: VizReadsArgs) extends BDGSparkCommand[VizRead
    * Initialize loaded variant files
    */
   def initVariantContext(sc: SparkContext, prefetch: Int): Option[VariantContextMaterialization] = {
-    // set flag for visualizing genotypes
-    VizReads.showGenotypes = args.showGenotypes
 
     if (Option(args.variantsPaths).isDefined) {
       val variantsPaths = args.variantsPaths.split(",").toList
