@@ -127,7 +127,7 @@ class AlignmentRecordMaterialization(@transient sc: SparkContext,
   override def toJson(data: RDD[(String, AlignmentRecord)]): Map[String, Array[ReadAlignment]] = {
     AlignmentTimers.collect.time {
       AlignmentTimers.getAlignmentData.time {
-        data.filter(r => Option(r._2.mapq).getOrElse(1).asInstanceOf[Int] > 0) // filter mapq 0 reads out
+        data.filter(r => Option(r._2.getMapq).getOrElse(1).asInstanceOf[Int] > 0) // filter mapq 0 reads out
           .collect.groupBy(_._1).mapValues(r => {
             r.map(a => alignmentRecordToGAReadAlignment(a._2))
           })

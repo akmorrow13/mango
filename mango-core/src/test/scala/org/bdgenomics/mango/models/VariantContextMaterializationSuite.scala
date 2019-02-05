@@ -55,6 +55,14 @@ class VariantContextMaterializationSuite extends MangoFunSuite {
 
   }
 
+  sparkTest("gets sample information") {
+    val data = new VariantContextMaterialization(sc, List(vcfFile1), sd)
+
+    val samples = data.samples
+
+    assert(samples.size == 1)
+  }
+
   sparkTest("Can extract json") {
     val region = new ReferenceRegion("chrM", 0, 999)
     val data = new VariantContextMaterialization(sc, List(vcfFile1), sd)

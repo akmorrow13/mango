@@ -34,7 +34,7 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
   val referenceFile = resourcePath("mm10_chrM.fa")
   val vcfFile = resourcePath("truetest.genotypes.vcf")
   val featureFile = resourcePath("smalltest.bed")
-  val coverageFile = resourcePath("mouse_chrM.coverage.adam")
+  val coverageFile = resourcePath("mouse_chrM.coverage.bed")
   val chromSizesFile = resourcePath("hg19.chrom.sizes")
 
   // exampleFiles
@@ -146,12 +146,9 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
     args.variantsPaths = vcfFile
     args.testMode = true
     args.chromSizesPath = chromSizesFile
-    args.showGenotypes = true
 
     implicit val VizReads = runVizReads(args)
-    get(s"/variants/${vcfKey}/chrM?start=0&end=100") {
 
-    }
     val body = SearchVariantsRequestGA4GH(vcfKey, "null", 200, "chrM", Array(), 0, 100).toByteArray()
 
     post("/variants/search", body, requestHeader) {
@@ -325,6 +322,18 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
     val exBamKey = LazyMaterialization.filterKeyFromFile(chr17bam)
     val exVcfKey = LazyMaterialization.filterKeyFromFile(chr17Vcf)
 
+    // no data
+    val variantsBody = SearchVariantsRequestGA4GH(exVcfKey, "null", 200, "chr1", Array(), 7500000, 7510100).toByteArray()
+
+    post("/variants/search", variantsBody, requestHeader) {
+      assert(status == Ok("").status.code)
+
+      val json = GA4GHutil.stringToVariantServiceResponse(response.getContent())
+        .getVariantsList
+
+      assert(json.size == 0)
+    }
+
     // generate requests for regions not in data bounds
     val readsBody1 = SearchReadsRequestGA4GH("null", 200, Array(exBamKey), "chr17", 1, 100).toByteArray()
     val variantsBody1 = SearchVariantsRequestGA4GH(exVcfKey, "null", 200, "chr17", Array(), 1, 100).toByteArray()
@@ -358,6 +367,19 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
         .getVariantsList
 
       assert(json.size == 289)
+
+    }
+
+    val variantsBody3 = SearchVariantsRequestGA4GH(exVcfKey, "null", 400, "chr17",
+      Array("HG00096", "HG00097", "HG00099", "HG00100", "HG00101"), 40603901, 40604000).toByteArray()
+
+    post("/variants/search", variantsBody3, requestHeader) {
+      assert(status == Ok("").status.code)
+
+      val json = GA4GHutil.stringToVariantServiceResponse(response.getContent())
+        .getVariantsList
+
+      assert(json.size == 0)
 
     }
   }

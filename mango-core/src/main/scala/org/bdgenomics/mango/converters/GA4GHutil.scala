@@ -245,7 +245,7 @@ case class SearchVariantsRequestGA4GH(variantSetId: String,
   // converts object to JSON byte array. For testing POSTs.
   def toByteArray(): Array[Byte] = {
     implicit val formats = DefaultFormats
-    compact(render(decompose(this))).toCharArray.map(_.toByte)
+    compactRender(decompose(this)).toCharArray.map(_.toByte)
   }
 
 }
@@ -260,7 +260,7 @@ case class SearchFeaturesRequestGA4GH(featureSetId: String,
   // converts object to JSON byte array. For testing POSTs.
   def toByteArray(): Array[Byte] = {
     implicit val formats = DefaultFormats
-    compact(render(decompose(this))).toCharArray.map(_.toByte)
+    compactRender(decompose(this)).toCharArray.map(_.toByte)
   }
 
 }
@@ -276,7 +276,7 @@ case class SearchReadsRequestGA4GH(pageToken: String,
   // converts object to JSON byte array. For testing POSTs.
   def toByteArray(): Array[Byte] = {
     implicit val formats = DefaultFormats
-    compact(render(decompose(this))).toCharArray.map(_.toByte)
+    compactRender(decompose(this)).toCharArray.map(_.toByte)
   }
 
 }
