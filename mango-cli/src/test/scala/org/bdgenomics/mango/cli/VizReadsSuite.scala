@@ -28,8 +28,6 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
 
   implicit val formats = DefaultFormats
 
-  addServlet(classOf[VizServlet], "/*")
-
   val bamFile = resourcePath("mouse_chrM.bam")
   val referenceFile = resourcePath("mm10_chrM.fa")
   val vcfFile = resourcePath("truetest.genotypes.vcf")
@@ -60,12 +58,15 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
   val requestHeader = Map("Content-Type" -> "application/json")
 
   sparkTest("Should pass for discovery mode") {
+
+    addServlet(classOf[VizServlet], "/*")
     val args = new VizReadsArgs()
     args.discoveryMode = true
     args.referencePath = referenceFile
     args.chromSizesPath = chromSizesFile
     args.featurePaths = featureFile
     args.variantsPaths = vcfFile
+    args.coveragePaths = coverageFile
     args.testMode = true
 
     implicit val vizReads = runVizReads(args)
@@ -75,11 +76,15 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
     post("/features/search", body, requestHeader) {
       assert(status == Ok("").status.code)
     }
+
+    get("/quit") {
+      assert(status == Ok("").status.code)
+    }
   }
 
   /** Reads tests **/
   sparkTest("should return reads") {
-    implicit val VizReads = runVizReads(args)
+    implicit val vizReads = runVizReads(args)
 
     val body = SearchReadsRequestGA4GH("null", 200, Array(bamKey), "chrM", 1, 2).toByteArray()
 
@@ -92,25 +97,15 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
       assert(parsedData.size == 9)
 
     }
-  }
 
-  // TODO
-  //    sparkTest("should return coverage from reads") {
-  //      implicit val VizReads = runVizReads(args)
-  //      val postArgs = SearchReadsRequestGA4GH("null", 200, Array(bamKey), "chrM", 1, 100).toMap()
-  //      post("/reads/search", postArgs) {
-  //        assert(status == Ok("").status.code)
-  //        val json = parse(response.getContent()).extract[Array[PositionCount]]
-  //        assert(json.length == 99)
-  //      }
-  //    }
+  }
 
   sparkTest("Should throw error when reads do not exist") {
     val newArgs = new VizReadsArgs()
     newArgs.referencePath = referenceFile
     newArgs.chromSizesPath = chromSizesFile
     newArgs.testMode = true
-    implicit val VizReads = runVizReads(newArgs)
+    implicit val vizReads = runVizReads(newArgs)
 
     val body = SearchReadsRequestGA4GH("null", 200, Array(bamKey), "chrM", 1, 100).toByteArray()
 
@@ -120,7 +115,7 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
   }
 
   sparkTest("Reads should throw NotFound error on invalid contig") {
-    implicit val VizReads = runVizReads(args)
+    implicit val vizReads = runVizReads(args)
 
     val body = SearchReadsRequestGA4GH("null", 200, Array(bamKey), "fakeChr", 1, 100).toByteArray()
 
@@ -130,7 +125,7 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
   }
 
   sparkTest("should not return reads with invalid key") {
-    implicit val VizReads = runVizReads(args)
+    implicit val vizReads = runVizReads(args)
 
     val body = SearchReadsRequestGA4GH("null", 200, Array("invalidKey"), "chrM", 1, 100).toByteArray()
 
@@ -147,7 +142,7 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
     args.testMode = true
     args.chromSizesPath = chromSizesFile
 
-    implicit val VizReads = runVizReads(args)
+    implicit val vizReads = runVizReads(args)
 
     val body = SearchVariantsRequestGA4GH(vcfKey, "null", 200, "chrM", Array(), 0, 100).toByteArray()
 
@@ -262,52 +257,83 @@ class VizReadsSuite extends MangoFunSuite with ScalatraSuite {
       assert(status == NotFound().status.code)
     }
   }
-  //
-  //  /** Coverage Tests **/
-  //  sparkTest("/coverage/:key/:ref") {
-  //    val args = new VizReadsArgs()
-  //    args.referencePath = referenceFile
-  //    args.coveragePaths = coverageFile
-  //    args.chromSizesPath = chromSizesFile
-  //    args.testMode = true
-  //
-  //    implicit val vizReads = runVizReads(args)
-  //    get(s"/coverage/${coverageKey}/chrM?start=0&end=1200) {
-  //      assert(status == Ok("").status.code)
-  //      val json = parse(response.getContent()).extract[Array[PositionCount]]
-  //      assert(json.map(_.start).distinct.length == 1200)
-  //    }
-  //  }
-  //
-  //  sparkTest("should not return coverage with invalid key") {
-  //    implicit val VizReads = runVizReads(args)
-  //    get(s"/coverage/invalidKey/chrM?start=0&end=100") {
-  //      assert(status == Ok("").status.code)
-  //      val json = parse(response.getContent()).extract[Array[PositionCount]]
-  //      assert(json.map(_.start).distinct.length == 0)
-  //    }
-  //  }
-  //
-  //  sparkTest("Should throw error when coverage does not exist") {
-  //    val newArgs = new VizReadsArgs()
-  //    newArgs.referencePath = referenceFile
-  //    newArgs.chromSizesPath = chromSizesFile
-  //    newArgs.testMode = true
-  //    implicit val VizReads = runVizReads(newArgs)
-  //
-  //    get(s"/coverage/invalidKey/chrM?start=1&end=100") {
-  //      assert(status == NotFound().status.code)
-  //    }
-  //  }
-  //
-  //  sparkTest("Coverage should throw out of bounds error on invalid contig") {
-  //    implicit val VizReads = runVizReads(args)
-  //
-  //    get(s"/reads/${coverageKey}/fakeChr?start=1&end=100") {
-  //      assert(status == NotFound().status.code)
-  //    }
-  //  }
-  //
+
+  /** Coverage Tests **/
+  sparkTest("gets coverage from feature endpoint") {
+    val newArgs = new VizReadsArgs()
+    newArgs.referencePath = referenceFile
+    newArgs.coveragePaths = coverageFile
+    newArgs.chromSizesPath = chromSizesFile
+    newArgs.testMode = true
+
+    implicit val vizReads = runVizReads(newArgs)
+
+    val body = SearchFeaturesRequestGA4GH(coverageKey, "null", 200, "chrM", 0, 1200).toByteArray()
+
+    post("/features/search", body, requestHeader) {
+      assert(status == Ok("").status.code)
+      val json = GA4GHutil.stringToSearchFeaturesResponse(response.getContent())
+        .getFeaturesList
+
+      assert(json.size == 1200)
+    }
+  }
+
+  sparkTest("should not return coverage with invalid key") {
+    implicit val VizReads = runVizReads(args)
+
+    val body = SearchFeaturesRequestGA4GH("invalidKey", "null", 200, "chrM", 0, 1200).toByteArray()
+
+    post("/features/search", body, requestHeader) {
+      assert(status == Ok("").status.code)
+      val json = GA4GHutil.stringToSearchFeaturesResponse(response.getContent())
+        .getFeaturesList
+
+      assert(json.size == 0)
+    }
+  }
+
+  sparkTest("Should return coverage and features") {
+    val newArgs = new VizReadsArgs()
+    newArgs.referencePath = referenceFile
+    newArgs.chromSizesPath = chromSizesFile
+    newArgs.coveragePaths = coverageFile
+    newArgs.featurePaths = featureFile
+    newArgs.testMode = true
+    implicit val VizReads = runVizReads(newArgs)
+
+    val coverageBody = SearchFeaturesRequestGA4GH(coverageKey, "null", 200, "chrM", 0, 1200).toByteArray()
+
+    post("/features/search", coverageBody, requestHeader) {
+      assert(status == Ok("").status.code)
+      val json = GA4GHutil.stringToSearchFeaturesResponse(response.getContent())
+        .getFeaturesList
+
+      assert(json.size == 1200)
+    }
+
+    val featureBody = SearchFeaturesRequestGA4GH(featureKey, "null", 200, "chrM", 0, 1200).toByteArray()
+
+    post("/features/search", featureBody, requestHeader) {
+      assert(status == Ok("").status.code)
+      val json = GA4GHutil.stringToSearchFeaturesResponse(response.getContent())
+        .getFeaturesList
+
+      assert(json.size == 2)
+    }
+
+  }
+
+  sparkTest("Coverage should throw out of bounds error on invalid contig") {
+    implicit val VizReads = runVizReads(args)
+
+    val coverageBody = SearchFeaturesRequestGA4GH(coverageKey, "null", 200, "fakeChr", 0, 1200).toByteArray()
+
+    post("/features/search", coverageBody, requestHeader) {
+      assert(status == NotFound().status.code)
+    }
+  }
+
   /** Example files **/
   sparkTest("should run example files") {
 
