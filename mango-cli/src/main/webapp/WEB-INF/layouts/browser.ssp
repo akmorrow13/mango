@@ -1,10 +1,9 @@
 <%@ val dictionary:     String  %>
 <%@ val twoBitUrl:      String  %>
 <%@ val genes:          Option[String] %>
-<%@ val coverage:  Option[List[String]] %>
-<%@ val reads:     Option[List[(String, Option[String])]] %>
+<%@ val reads:     Option[List[String]] %>
 <%@ val variants:  Option[Map[String, String]] %> <!-- map of file name and samples to extract genotype ids/names -->
-<%@ val features:  Option[List[String]] %>
+<%@ val features:  Option[List[(String, Boolean)]] %> <!-- if true, then the track should be a coverage track -->
 <%@ val contig: String %>
 <%@ val start: String %>
 <%@ val end: String %>
@@ -87,30 +86,26 @@
                 #end
             #end
 
-            // add coverage
-            #if (coverage.isDefined)
-                #for (s <- coverage.get)
-                    tracks.push({
-                    viz: pileup.viz.coverage(),
-                    data: pileup.formats.coverage({
-                    url: '/coverage/${s}'
-                    }),
-                    name: '${s}'
-                    });
-                #end
-            #end
-
-            // add features
+            // add features and coverage
             #if (features.isDefined)
                 #for (s <- features.get)
-                    tracks.push({
-                    viz: pileup.viz.features(),
-                    data: pileup.formats.GAFeature({
-                        endpoint: '',
-                        featureSetId: '${s}'
-                    }),
-                    name: '${s}'
+                    var data = pileup.formats.GAFeature({
+                    endpoint: '',
+                    featureSetId: '${s._1}'
                     });
+                    #if (s._2 == true)
+                        tracks.push({
+                            viz: pileup.viz.coverage(),
+                            data: data,
+                            name: '${s._1}'
+                        });
+                    #else
+                        tracks.push({
+                            viz: pileup.viz.features(),
+                            data: data,
+                            name: '${s._1}'
+                        });
+                    #end
                 #end
             #end
 
@@ -119,14 +114,14 @@
                 #for (s <- reads.get)
                     var data = pileup.formats.GAReadAlignment({
                         endpoint: '',
-                        readGroupId: '${s._1}',
+                        readGroupId: '${s}',
                         killChr: false
                     });
                     // track for coverage for reads
                     tracks.push({
                         viz: pileup.viz.coverage(),
                         data: data,
-                        name: '${s._1}'
+                        name: '${s}'
                     });
                     // track for reads
                     tracks.push({
@@ -135,7 +130,7 @@
                         }),
                         isReference: false,
                         data: data,
-                        name: '${s._1}'
+                        name: '${s}'
                     });
                 #end
             #end
